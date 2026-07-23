@@ -8,20 +8,22 @@
 /*==========================================================
  IDENTIDAD DEL ASESOR
  ----------------------------------------------------------
- Cuando el cotizador se abre desde un Custom Menu Link dentro
- de GHL, la URL puede traer advisor_name/advisor_email ya
- resueltos por GHL (ej. {{user.first_name}} {{user.last_name}}
- y {{user.email}} en la configuración del menú). Si no vienen
- (pruebas locales, fuera de GHL), quedan vacíos sin romper nada.
+ El Custom Menu Link de GHL (probado en vivo) solo admite
+ "Location values" y "Custom Values" en su URL — NO merge
+ fields del usuario logueado (confirmado en la ayuda del propio
+ formulario de GHL). Por eso advisor_name/advisor_email/
+ opportunity_owner por URL casi siempre llegan vacíos; se dejan
+ como respaldo por si algún día GHL los soporta, pero la fuente
+ real hoy es el Owner del contacto encontrado en la búsqueda de
+ lead (ver applyContactOwnerToAdvisor() más abajo).
 ==========================================================*/
 
+let lastFoundContactOwnerName = "";
+
 /*
-    "opportunityOwner" queda listo para cuando GHL empiece a
-    resolver el Owner de la oportunidad en el Custom Menu Link
-    (ej. {{opportunity.owner.name}}) y lo pase como
-    "opportunity_owner" en la URL — el PDF (ver pdf.js) ya lo
-    usa como fuente preferida sobre el nombre ficticio, así que
-    ese día no habrá que tocar la estructura del documento.
+    "opportunityOwner" es el campo que pdf.js#resolveAsesoraName ya
+    prioriza sobre el nombre ficticio por defecto — se reutiliza aquí
+    para el Owner real del contacto, sin tener que tocar pdf.js.
 */
 
 function getAdvisorInfo() {
@@ -34,9 +36,15 @@ function getAdvisorInfo() {
 
         email: params.get("advisor_email") || "",
 
-        opportunityOwner: params.get("opportunity_owner") || ""
+        opportunityOwner: lastFoundContactOwnerName || params.get("opportunity_owner") || ""
 
     };
+
+}
+
+function applyContactOwnerToAdvisor(rawOwnerName) {
+
+    lastFoundContactOwnerName = rawOwnerName || "";
 
 }
 
@@ -577,11 +585,15 @@ async function handleSearchLead() {
 
     hideQuotationHistory();
 
+    applyContactOwnerToAdvisor("");
+
     const contact = await searchLeadByEmailOrPhone(query);
 
     if (contact) {
 
         applyLeadToForm(contact);
+
+        applyContactOwnerToAdvisor(contact.ownerName);
 
         statusBox.textContent = `Lead encontrado: ${contact.name || contact.email || query}.`;
 
