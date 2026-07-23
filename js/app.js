@@ -103,6 +103,8 @@ let lastGeneratedPdfBlob = null;
 
 let lastUploadedPdfUrl = null;
 
+let lastPdfFilename = null;
+
 let lastContactId = null;
 
 
@@ -221,6 +223,8 @@ async function handleGenerateQuotation() {
         showSendStatus("Subiendo PDF y guardando en GoHighLevel...");
 
         const filename = buildPdfFilename(student);
+
+        lastPdfFilename = filename;
 
         lastUploadedPdfUrl = await uploadQuotationPdf(lastGeneratedPdfBlob, filename);
 
@@ -394,7 +398,9 @@ async function handleConfirmSendEmail() {
 
             html: textToHtml(body),
 
-            attachmentUrl: lastUploadedPdfUrl
+            attachmentUrl: lastUploadedPdfUrl,
+
+            attachmentFilename: lastPdfFilename
 
         });
 

@@ -189,7 +189,7 @@ async function createQuotationNote(contactId, noteText) {
  ENVÍO DE CORREO (acción manual del asesor, ver app.js)
 ==========================================================*/
 
-async function sendQuotationEmail({ contactId, subject, html, attachmentUrl }) {
+async function sendQuotationEmail({ contactId, subject, html, attachmentUrl, attachmentFilename }) {
 
     if (!isGhlRelayConfigured()) {
 
@@ -197,6 +197,6 @@ async function sendQuotationEmail({ contactId, subject, html, attachmentUrl }) {
 
     }
 
-    return ghlRelayRequest("/email/send", "POST", { contactId, subject, html, attachmentUrl });
+    return ghlRelayRequest("/email/send", "POST", { contactId, subject, html, attachmentUrl, attachmentFilename });
 
 }
