@@ -1,0 +1,1209 @@
+/* ==========================================================
+   LATINADVISOR ACADEMIC QUOTATION SYSTEM
+   VERSION 1.0
+========================================================== */
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+}
+
+:root{
+
+    --primary:#8dcd25;
+    --primary-dark:#73b61a;
+
+    --background:#f5f7fa;
+
+    --card:#ffffff;
+
+    --border:#d8dde3;
+
+    --text:#2d3436;
+
+    --subtitle:#70757a;
+
+    --success:#16a34a;
+
+    --warning:#f59e0b;
+
+    --danger:#dc2626;
+
+    --shadow:0 10px 30px rgba(0,0,0,.08);
+
+}
+
+body{
+
+    background:var(--background);
+
+    font-family:
+    "Segoe UI",
+    Arial,
+    Helvetica,
+    sans-serif;
+
+    color:var(--text);
+
+}
+
+#app{
+
+    width:95%;
+
+    max-width:1500px;
+
+    margin:35px auto;
+
+}
+
+
+/*=========================================
+HEADER
+=========================================*/
+
+.header{
+
+    background:white;
+
+    border-radius:18px;
+
+    padding:35px;
+
+    margin-bottom:25px;
+
+    box-shadow:var(--shadow);
+
+}
+
+.header h1{
+
+    color:var(--primary);
+
+    font-size:38px;
+
+}
+
+.header p{
+
+    margin-top:8px;
+
+    color:var(--subtitle);
+
+}
+
+
+/*=========================================
+CARDS
+=========================================*/
+
+.card{
+
+    background:white;
+
+    border-radius:18px;
+
+    padding:30px;
+
+    margin-bottom:25px;
+
+    box-shadow:var(--shadow);
+
+}
+
+.card h2{
+
+    margin-bottom:25px;
+
+}
+
+
+/*=========================================
+LEAD SEARCH
+=========================================*/
+
+.lead-search{
+
+    background:#fafafa;
+
+    border:1px solid #e5e5e5;
+
+    border-radius:14px;
+
+    padding:25px;
+
+    margin-bottom:30px;
+
+}
+
+.lead-search-title{
+
+    font-size:18px;
+
+    font-weight:bold;
+
+    margin-bottom:20px;
+
+    color:var(--primary);
+
+}
+
+.lead-search-grid{
+
+    display:grid;
+
+    grid-template-columns:3fr 180px;
+
+    gap:20px;
+
+    align-items:end;
+
+}
+
+.lead-search-button{
+
+    display:flex;
+
+    align-items:flex-end;
+
+}
+
+.lead-status{
+
+    margin-top:18px;
+
+    background:white;
+
+    border-left:5px solid var(--warning);
+
+    padding:14px 18px;
+
+    border-radius:10px;
+
+    color:#555;
+
+    font-size:14px;
+
+}
+
+
+/*=========================================
+FORMULARIOS
+=========================================*/
+
+.form-grid{
+
+    display:grid;
+
+    grid-template-columns:repeat(2,1fr);
+
+    gap:22px;
+
+}
+
+.form-group{
+
+    display:flex;
+
+    flex-direction:column;
+
+}
+
+.form-group label{
+
+    font-weight:600;
+
+    margin-bottom:8px;
+
+    font-size:14px;
+
+}
+
+.form-group input,
+.form-group select{
+
+    height:50px;
+
+    border:1px solid var(--border);
+
+    border-radius:10px;
+
+    padding:0 16px;
+
+    font-size:15px;
+
+    transition:.25s;
+
+    background:white;
+
+}
+
+.form-group textarea{
+
+    border:1px solid var(--border);
+
+    border-radius:10px;
+
+    padding:12px 16px;
+
+    font-size:15px;
+
+    font-family:inherit;
+
+    resize:vertical;
+
+    transition:.25s;
+
+    background:white;
+
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus{
+
+    outline:none;
+
+    border-color:var(--primary);
+
+    box-shadow:0 0 0 3px rgba(141,205,37,.15);
+
+}
+
+.phone-field-row{
+
+    display:flex;
+
+    gap:8px;
+
+}
+
+.phone-field-row select{
+
+    flex:0 0 150px;
+
+    min-width:0;
+
+    padding:0 8px;
+
+    font-size:14px;
+
+}
+
+.phone-field-row input{
+
+    flex:1;
+
+    min-width:0;
+
+}
+
+.section-title{
+
+    grid-column:1/-1;
+
+    margin-top:15px;
+
+    padding-bottom:10px;
+
+    border-bottom:1px solid #ececec;
+
+    color:var(--primary);
+
+    font-size:18px;
+
+    font-weight:bold;
+
+}
+
+
+/*=========================================
+BOTONES
+=========================================*/
+
+.btn{
+
+    width:100%;
+
+    height:50px;
+
+    background:var(--primary);
+
+    color:white;
+
+    border:none;
+
+    border-radius:10px;
+
+    font-size:15px;
+
+    font-weight:bold;
+
+    cursor:pointer;
+
+    transition:.25s;
+
+}
+
+.btn:hover{
+
+    background:var(--primary-dark);
+
+}
+
+.btn:disabled{
+
+    background:#d8dde3;
+
+    color:#8a8f96;
+
+    cursor:not-allowed;
+
+}
+
+.btn-secondary{
+
+    background:white;
+
+    color:var(--primary);
+
+    border:2px solid var(--primary);
+
+}
+
+.btn-secondary:hover{
+
+    background:#f2f9e8;
+
+}
+
+.btn-secondary:disabled{
+
+    background:white;
+
+    color:#c3c8cd;
+
+    border-color:#d8dde3;
+
+}
+
+
+/*=========================================
+BADGES
+=========================================*/
+
+.badge-success{
+
+    background:#dcfce7;
+
+    color:#166534;
+
+    padding:6px 12px;
+
+    border-radius:50px;
+
+}
+
+.badge-warning{
+
+    background:#fef3c7;
+
+    color:#92400e;
+
+    padding:6px 12px;
+
+    border-radius:50px;
+
+}
+
+.badge-danger{
+
+    background:#fee2e2;
+
+    color:#991b1b;
+
+    padding:6px 12px;
+
+    border-radius:50px;
+
+}
+
+
+/*=========================================
+RESPONSIVE
+=========================================*/
+
+@media(max-width:900px){
+
+    .form-grid{
+
+        grid-template-columns:1fr;
+
+    }
+
+    .lead-search-grid{
+
+        grid-template-columns:1fr;
+
+    }
+
+}
+
+/*==========================================================
+CURSOS
+==========================================================*/
+
+.course-card{
+
+    background:#fafafa;
+
+    border:1px solid #e4e7eb;
+
+    border-radius:16px;
+
+    padding:25px;
+
+    margin-bottom:25px;
+
+    transition:.25s;
+
+}
+
+.course-card:hover{
+
+    box-shadow:0 8px 18px rgba(0,0,0,.08);
+
+}
+
+
+
+.course-header{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    margin-bottom:25px;
+
+    padding-bottom:15px;
+
+    border-bottom:1px solid #ececec;
+
+}
+
+
+
+.course-header h3{
+
+    font-size:20px;
+
+    color:#2d3436;
+
+}
+
+
+
+.delete-course{
+
+    background:transparent;
+
+    border:none;
+
+    color:#dc2626;
+
+    font-weight:600;
+
+    cursor:pointer;
+
+    font-size:14px;
+
+    transition:.2s;
+
+}
+
+
+
+.delete-course:hover{
+
+    color:#991b1b;
+
+    transform:scale(1.05);
+
+}
+
+
+
+/*==========================================================
+BOTÓN AGREGAR CURSO
+==========================================================*/
+
+.add-course-container{
+
+    display:flex;
+
+    justify-content:center;
+
+    margin-top:20px;
+
+}
+
+
+
+.add-course-btn{
+
+    width:280px;
+
+}
+
+
+
+/*==========================================================
+TRANSICIONES
+==========================================================*/
+
+.course-card{
+
+    animation:fadeCourse .25s ease;
+
+}
+
+
+
+@keyframes fadeCourse{
+
+    from{
+
+        opacity:0;
+
+        transform:translateY(15px);
+
+    }
+
+    to{
+
+        opacity:1;
+
+        transform:translateY(0);
+
+    }
+
+}
+
+/*==========================================================
+CAMPO DINÁMICO
+==========================================================*/
+
+.hidden{
+
+    display:none;
+
+}
+
+
+
+/*==========================================================
+SERVICIOS OPCIONALES
+==========================================================*/
+
+.service-option{
+
+    flex-direction:row;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    gap:14px;
+
+}
+
+.service-option label{
+
+    display:flex;
+    align-items:center;
+    gap:10px;
+
+    margin:0;
+    font-weight:600;
+    font-size:15px;
+    cursor:pointer;
+
+}
+
+.service-option input[type="checkbox"]{
+
+    width:18px;
+    height:18px;
+    accent-color:var(--primary);
+    cursor:pointer;
+
+}
+
+.service-option input[type="number"]{
+
+    width:80px;
+    height:42px;
+
+}
+
+
+
+/*==========================================================
+RESUMEN DE COTIZACIÓN
+==========================================================*/
+
+.calculate-container{
+
+    margin-top:25px;
+
+}
+
+.summary-section{
+
+    margin-bottom:20px;
+
+}
+
+.summary-subrow{
+
+    padding-left:18px;
+
+    font-size:13px;
+
+    color:var(--subtitle);
+
+}
+
+.summary-row{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    padding:10px 0;
+
+    border-bottom:1px solid #ececec;
+
+    font-size:15px;
+
+}
+
+.summary-row span:last-child{
+
+    font-weight:600;
+
+}
+
+.summary-warning{
+
+    background:#fef3c7;
+
+    color:#92400e;
+
+    padding:10px 14px;
+
+    border-radius:10px;
+
+    margin-bottom:10px;
+
+    font-size:14px;
+
+}
+
+.summary-discount span:last-child{
+
+    color:var(--danger);
+
+}
+
+.summary-totals{
+
+    background:#fafafa;
+
+    border:1px solid #e4e7eb;
+
+    border-radius:14px;
+
+    padding:10px 18px;
+
+}
+
+.summary-grand-total{
+
+    border-bottom:none;
+
+    margin-top:10px;
+
+    padding-top:18px;
+
+    border-top:2px solid var(--border);
+
+    font-size:20px;
+
+}
+
+.summary-grand-total span:last-child{
+
+    color:var(--primary);
+
+}
+
+.summary-extra-costs{
+
+    background:#f0f0f0;
+
+    border:1px solid #d8dde3;
+
+    border-radius:14px;
+
+    padding:10px 18px;
+
+}
+
+.summary-extra-total{
+
+    border-bottom:none;
+
+    border-top:1px dashed #b5bac1;
+
+    margin-top:6px;
+
+    padding-top:14px;
+
+    font-weight:600;
+
+}
+
+.summary-extra-note{
+
+    padding-top:10px;
+
+    font-size:12px;
+
+    color:var(--subtitle);
+
+}
+
+.summary-error{
+
+    background:#fee2e2;
+
+    color:#991b1b;
+
+    padding:14px 18px;
+
+    border-radius:10px;
+
+    font-size:14px;
+
+    margin-bottom:20px;
+
+}
+
+.send-container{
+
+    margin-top:15px;
+
+}
+
+.post-generation-actions{
+
+    display:flex;
+
+    gap:12px;
+
+    margin-top:15px;
+
+}
+
+.post-generation-actions .btn{
+
+    width:auto;
+
+    flex:1;
+
+    padding:0 16px;
+
+}
+
+.email-compose{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:15px;
+
+    margin-top:15px;
+
+}
+
+/*
+    Especificidad más alta que ".hidden{display:none}" a propósito — ver
+    comentario junto a ".modal-overlay.hidden" más abajo en esta hoja,
+    mismo problema de orden de cascada.
+*/
+
+.email-compose.hidden{
+
+    display:none;
+
+}
+
+
+
+/*==========================================================
+ACORDEÓN (SECCIONES COLAPSABLES)
+==========================================================*/
+
+.card-header-toggle{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    cursor:pointer;
+
+    user-select:none;
+
+}
+
+.card-toggle-icon{
+
+    font-size:14px;
+
+    color:var(--subtitle);
+
+    transition:.25s;
+
+}
+
+.card-collapsed .card-toggle-icon{
+
+    transform:rotate(-90deg);
+
+}
+
+.card-collapsed .card-body{
+
+    display:none;
+
+}
+
+
+
+/*==========================================================
+MODAL DE CONFIRMACIÓN
+==========================================================*/
+
+.modal-overlay{
+
+    position:fixed;
+
+    inset:0;
+
+    background:rgba(0,0,0,.45);
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    z-index:1000;
+
+}
+
+/*
+    Especificidad más alta que ".hidden{display:none}" a propósito:
+    ".modal-overlay" ya trae "display:flex" propio, y al estar
+    declarado DESPUÉS de ".hidden" en esta hoja le ganaría por orden
+    de cascada (misma especificidad) si no se refuerza acá.
+*/
+
+.modal-overlay.hidden{
+
+    display:none;
+
+}
+
+.modal-box{
+
+    background:white;
+
+    border-radius:14px;
+
+    padding:28px;
+
+    max-width:420px;
+
+    width:90%;
+
+    box-shadow:var(--shadow);
+
+}
+
+.modal-message{
+
+    font-size:15px;
+
+    color:var(--text);
+
+    margin-bottom:22px;
+
+}
+
+.modal-actions{
+
+    display:flex;
+
+    gap:12px;
+
+    justify-content:flex-end;
+
+}
+
+.modal-actions .btn{
+
+    width:auto;
+
+    height:44px;
+
+    padding:0 18px;
+
+}
+
+.btn-danger{
+
+    background:var(--danger);
+
+    color:white;
+
+    border:2px solid var(--danger);
+
+}
+
+.btn-danger:hover{
+
+    background:#991b1b;
+
+    border-color:#991b1b;
+
+}
+
+
+
+/*==========================================================
+PESTAÑAS DE OPCIÓN DE COLEGIO
+==========================================================*/
+
+.option-tabs-row{
+
+    display:flex;
+
+    flex-wrap:wrap;
+
+    align-items:center;
+
+    justify-content:flex-start;
+
+    gap:8px;
+
+    margin-bottom:20px;
+
+}
+
+.option-tabs{
+
+    display:flex;
+
+    flex-wrap:wrap;
+
+    gap:8px;
+
+}
+
+.option-tab{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:8px;
+
+    padding:10px 16px;
+
+    border-radius:10px;
+
+    border:2px solid var(--border);
+
+    background:white;
+
+    cursor:pointer;
+
+    font-weight:600;
+
+    color:var(--subtitle);
+
+    transition:.2s;
+
+}
+
+.option-tab:hover{
+
+    border-color:var(--primary);
+
+}
+
+.option-tab.active{
+
+    border-color:var(--primary);
+
+    background:#f2f9e8;
+
+    color:var(--text);
+
+}
+
+.option-tab-label{
+
+    cursor:pointer;
+
+}
+
+.delete-option{
+
+    background:transparent;
+
+    border:none;
+
+    color:var(--danger);
+
+    font-weight:600;
+
+    cursor:pointer;
+
+    font-size:13px;
+
+    line-height:1;
+
+}
+
+.delete-option:hover{
+
+    color:#991b1b;
+
+    transform:scale(1.05);
+
+}
+
+.option-panel.hidden{
+
+    display:none;
+
+}
+
+.add-option-btn{
+
+    width:auto;
+
+    flex-shrink:0;
+
+    white-space:nowrap;
+
+    padding:0 24px;
+
+    background:#f2f9e8;
+
+    color:var(--primary-dark);
+
+    border:none;
+
+}
+
+.add-option-btn:hover{
+
+    background:#e5f2d3;
+
+}
+
+
+
+/*==========================================================
+TABLA COMPARATIVA (RESUMEN)
+==========================================================*/
+
+.comparison-table-wrapper{
+
+    overflow-x:auto;
+
+}
+
+.comparison-table{
+
+    width:100%;
+
+    border-collapse:collapse;
+
+    font-size:13px;
+
+}
+
+.comparison-table th,
+.comparison-table td{
+
+    padding:10px 14px;
+
+    text-align:right;
+
+    border-bottom:1px solid #ececec;
+
+    white-space:nowrap;
+
+}
+
+.comparison-table th:first-child,
+.comparison-table td:first-child{
+
+    text-align:left;
+
+    white-space:normal;
+
+    font-weight:600;
+
+    color:var(--subtitle);
+
+}
+
+.comparison-table thead th{
+
+    background:#fafafa;
+
+    color:var(--text);
+
+}
+
+.comparison-row-total td{
+
+    font-weight:700;
+
+    font-size:15px;
+
+    border-top:2px solid var(--primary);
+
+    border-bottom:none;
+
+    color:var(--primary);
+
+}
+
+.comparison-row-discount td{
+
+    color:var(--danger);
+
+}
