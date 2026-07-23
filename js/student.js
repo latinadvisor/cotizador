@@ -20,10 +20,14 @@
 
 let lastFoundContactOwnerName = "";
 
+let lastFoundContactOwnerEmail = "";
+
 /*
-    "opportunityOwner" es el campo que pdf.js#resolveAsesoraName ya
-    prioriza sobre el nombre ficticio por defecto — se reutiliza aquí
-    para el Owner real del contacto, sin tener que tocar pdf.js.
+    "opportunityOwner"/"opportunityOwnerEmail" son los campos que
+    pdf.js#resolveAsesoraName y app.js#buildQuotationHeader ya priorizan
+    sobre el nombre ficticio por defecto y los parámetros de URL — se
+    reutilizan aquí para el Owner real del contacto, sin tener que tocar
+    esos otros módulos.
 */
 
 function getAdvisorInfo() {
@@ -36,15 +40,19 @@ function getAdvisorInfo() {
 
         email: params.get("advisor_email") || "",
 
-        opportunityOwner: lastFoundContactOwnerName || params.get("opportunity_owner") || ""
+        opportunityOwner: lastFoundContactOwnerName || params.get("opportunity_owner") || "",
+
+        opportunityOwnerEmail: lastFoundContactOwnerEmail || ""
 
     };
 
 }
 
-function applyContactOwnerToAdvisor(rawOwnerName) {
+function applyContactOwnerToAdvisor(rawOwnerName, rawOwnerEmail) {
 
     lastFoundContactOwnerName = rawOwnerName || "";
+
+    lastFoundContactOwnerEmail = rawOwnerEmail || "";
 
 }
 
@@ -585,7 +593,7 @@ async function handleSearchLead() {
 
     hideQuotationHistory();
 
-    applyContactOwnerToAdvisor("");
+    applyContactOwnerToAdvisor("", "");
 
     const contact = await searchLeadByEmailOrPhone(query);
 
@@ -593,7 +601,7 @@ async function handleSearchLead() {
 
         applyLeadToForm(contact);
 
-        applyContactOwnerToAdvisor(contact.ownerName);
+        applyContactOwnerToAdvisor(contact.ownerName, contact.ownerEmail);
 
         statusBox.textContent = `Lead encontrado: ${contact.name || contact.email || query}.`;
 

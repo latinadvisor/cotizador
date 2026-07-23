@@ -526,9 +526,12 @@ function buildQuotationHeader(quote, student, advisor, pdfUrl) {
 
         pdf_url: pdfUrl,
 
-        advisor_name: advisor.name,
+        // Misma prioridad que pdf.js#resolveAsesoraName: el Owner real del
+        // contacto (ver student.js#applyContactOwnerToAdvisor) manda sobre
+        // el parámetro de URL, que hoy casi siempre llega vacío.
+        advisor_name: advisor.opportunityOwner || advisor.name,
 
-        advisor_email: advisor.email
+        advisor_email: advisor.opportunityOwnerEmail || advisor.email
 
     };
 
