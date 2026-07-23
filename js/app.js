@@ -236,6 +236,35 @@ async function handleGenerateQuotation() {
 
         const savedCount = await saveEachOptionToGhl(lastCalculatedQuote, student, advisor, contactId, lastUploadedPdfUrl, filename);
 
+        /*
+            Una sola vez por cotización (no una vez por opción): mueve al
+            contacto a la etapa "Quote created" del pipeline "Advising
+            Process", creando la oportunidad si todavía no tenía una. El
+            valor monetario usa el total de la PRIMERA opción — si la
+            asesora comparó varios colegios, esa es la alternativa
+            principal (mismo criterio que la portada del PDF).
+        */
+
+        try {
+
+            const primaryOption = lastCalculatedQuote.options[0];
+
+            await upsertOpportunity({
+
+                contactId,
+
+                name: student.name,
+
+                monetaryValue: primaryOption ? primaryOption.totals.total : 0
+
+            });
+
+        } catch (error) {
+
+            console.error("Error creando/actualizando la oportunidad en GoHighLevel:", error);
+
+        }
+
         document.getElementById("btnSendEmail").disabled = false;
 
         showSendStatus(

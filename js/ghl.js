@@ -186,6 +186,22 @@ async function createQuotationNote(contactId, noteText) {
 }
 
 /*==========================================================
+ OPORTUNIDAD (Pipeline "Advising Process" — Stage "Quote created")
+==========================================================*/
+
+async function upsertOpportunity({ contactId, name, monetaryValue }) {
+
+    if (!isGhlRelayConfigured()) {
+
+        return { opportunityId: "mock-opportunity-1", created: true };
+
+    }
+
+    return ghlRelayRequest("/opportunities/upsert", "POST", { contactId, name, monetaryValue });
+
+}
+
+/*==========================================================
  ENVÍO DE CORREO (acción manual del asesor, ver app.js)
 ==========================================================*/
 
