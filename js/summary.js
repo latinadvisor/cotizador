@@ -303,11 +303,12 @@ function renderWarnings(options) {
  TABLA COMPARATIVA
  ----------------------------------------------------------
  Una columna por opción de colegio. Cada fila es un concepto
- general (Ciudad, Programa, Duración, Total Programa, Primer
- Pago, Seguro Médico, Visa, Adicionales, Descuento si aplica,
- Costos Extras si aplica, Total). Ninguna fila suma columnas
- entre sí — son alternativas de comparación, no partidas de un
- mismo total.
+ general (Ciudad, Programa, Duración, Total Programa, Seguro
+ Médico, Visa, Adicionales, Descuento si aplica, Costos Extras
+ si aplica, Total, Primer Pago). "Primer Pago" va al final,
+ después de "Total" (pedido explícito del cliente), resaltado
+ con su propia clase CSS. Ninguna fila suma columnas entre sí —
+ son alternativas de comparación, no partidas de un mismo total.
 ==========================================================*/
 
 function renderComparisonTable(quote) {
@@ -355,10 +356,10 @@ function renderComparisonTable(quote) {
         // "Total Programa" y "Primer Pago" se leen directamente de
         // option.totals (ver pricing.js#assembleTotals/calculateFirstPayment)
         // — única fuente de verdad, nunca recalculados aquí, para que
-        // pantalla y PDF muestren siempre exactamente lo mismo.
+        // pantalla y PDF muestren siempre exactamente lo mismo. "Primer
+        // Pago" va AL FINAL (después de "Total"), no aquí junto a "Total
+        // Programa" — ver push() más abajo.
         buildComparisonRow("Total Programa", options, option => formatCurrency(option.totals.subtotalCursos, currency)),
-
-        buildComparisonRow("Primer Pago", options, option => formatCurrency(option.totals.primerPago, currency)),
 
         buildComparisonRow(insuranceRowLabel(options), options, option => formatCurrency(option.insurance.cost, currency)),
 
@@ -391,6 +392,9 @@ function renderComparisonTable(quote) {
     }
 
     rows.push(buildComparisonRow("Total", options, option => formatCurrency(option.totals.total, currency), "comparison-row-total"));
+
+    // Última fila del bloque, resaltada — ver .comparison-row-first-payment en css/style.css.
+    rows.push(buildComparisonRow("Primer Pago", options, option => formatCurrency(option.totals.primerPago, currency), "comparison-row-first-payment"));
 
     const extraCostsNote = hasExtraCosts
 

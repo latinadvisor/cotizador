@@ -1207,3 +1207,21 @@ TABLA COMPARATIVA (RESUMEN)
     color:var(--danger);
 
 }
+
+/*
+    Última fila del comparativo (después de "Total") — resaltado sutil
+    en verde de marca, pedido explícito del cliente para que "Primer
+    Pago" se distinga sin salirse de la tabla.
+*/
+
+.comparison-row-first-payment td{
+
+    font-weight:700;
+
+    background:rgba(141,205,37,.1);
+
+    color:var(--primary);
+
+    border-top:1px solid var(--primary);
+
+}

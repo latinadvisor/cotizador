@@ -285,11 +285,11 @@ function amountRow(label, amount, currency, usdRate, options = {}) {
 
     return [
 
-        { text: label, fontSize: 9, bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.text },
+        { text: label, fontSize: 9, bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.text, fillColor: options.fillColor },
 
-        { ...formatMoneyCell(amount, currency, options), bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.text, fontSize: options.bold ? 12 : 9 },
+        { ...formatMoneyCell(amount, currency, options), bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.text, fontSize: options.bold ? 12 : 9, fillColor: options.fillColor },
 
-        { ...formatUsdCell(amount, usdRate, options), bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.subtitle, fontSize: options.bold ? 10 : 9 }
+        { ...formatUsdCell(amount, usdRate, options), bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.subtitle, fontSize: options.bold ? 10 : 9, fillColor: options.fillColor }
 
     ];
 
@@ -484,10 +484,11 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
 
     /*
         Bloque simplificado por pedido explícito del cliente: SOLO
-        fecha, colegio, nombre y correo del estudiante. Programa,
-        Tipo de programa, Duración, Ciudad y Destino ya NO se
-        muestran aquí (Duración sigue disponible en el cuadro verde
-        "Estudio por" de la plantilla).
+        fecha, ciudad(es), nombre y correo del estudiante. Programa,
+        Tipo de programa, Duración e Institución (ahora junto a cada
+        programa en el desglose) ya NO se muestran aquí (Duración
+        sigue disponible en el cuadro verde "Estudio por" de la
+        plantilla).
 
         "optionLabel" (ej. "Opción 1 — Opción 1") solo viene
         informado cuando la cotización tiene varias opciones de
@@ -503,11 +504,11 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
 
         : [];
 
-    // Institución(es): TODAS las distintas de la opción, no solo la del
-    // primer curso — una opción puede combinar varios colegios (ver
-    // DESGLOSE DE COSTOS más abajo para la institución de cada programa
-    // individual).
-    const institutions = [...new Set((quote.courses || []).map(course => course.college).filter(Boolean))];
+    // "Ciudad" (no "Institución" — pedido explícito del cliente): la
+    // institución ya se ve junto a cada programa dentro del desglose
+    // (ver buildCostTableSection); aquí solo interesa el resumen de
+    // TODAS las ciudades distintas de la opción (mismo criterio que
+    // summary.js#describeOptionCities).
 
     const lines = primaryCourse
 
@@ -517,7 +518,7 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
 
             infoLine("Fecha de elaboración de la cotización", generatedDate),
 
-            infoLine(institutions.length > 1 ? "Instituciones" : "Institución", institutions.join(", ")),
+            infoLine("Ciudad", describeOptionCities({ courses: quote.courses })),
 
             infoLine("Nombre del estudiante", student.name),
 
@@ -574,9 +575,14 @@ function buildCostTableSection(quote, currency, usdRate) {
 
     (quote.courses || []).forEach((course, index) => {
 
+        // Formato: "[Programa] ([Institución]) - [Ciudad]" — cada curso
+        // usa SU PROPIA institución y ciudad, nunca un valor global de la
+        // opción (una opción puede combinar varios colegios/ciudades).
         const programLabel = course.college ? `${course.program || "-"} (${course.college})` : (course.program || "-");
 
-        const label = quote.courses.length > 1 ? `Curso ${index + 1} — ${programLabel}` : `Curso — ${programLabel}`;
+        const programLabelWithCity = course.city ? `${programLabel} - ${course.city}` : programLabel;
+
+        const label = quote.courses.length > 1 ? `Curso ${index + 1} — ${programLabelWithCity}` : `Curso — ${programLabelWithCity}`;
 
         courseRows.push(amountRow(label, course.price, currency, usdRate));
 
@@ -588,16 +594,13 @@ function buildCostTableSection(quote, currency, usdRate) {
 
     /*
         "Total Programa" (Curso + Matrícula + Materiales, ver
-        pricing.js#assembleTotals) y "Primer Pago" (ver
-        pricing.js#calculateFirstPayment) — ambos ya calculados como
-        parte de quote.totals, nunca recalculados aquí, para que el PDF
-        muestre siempre exactamente lo mismo que el comparativo en
-        pantalla (summary.js#renderComparisonTable).
+        pricing.js#assembleTotals) — ya calculado como parte de
+        quote.totals, nunca recalculado aquí. "Primer Pago" NO va en este
+        bloque: es la última fila de "Resumen Financiero", después del
+        TOTAL general (ver buildResumenFinancieroSection más abajo).
     */
 
     courseRows.push(amountRow("Total Programa", quote.totals.subtotalCursos, currency, usdRate, { bold: true }));
-
-    courseRows.push(amountRow("Primer Pago", quote.totals.primerPago, currency, usdRate, { bold: true }));
 
     const otherChargeRows = [];
 
@@ -707,6 +710,10 @@ function buildResumenFinancieroSection(quote, currency, usdRate) {
     }
 
     rows.push(amountRow("TOTAL", totals.total, currency, usdRate, { bold: true }));
+
+    // Última fila del bloque, después del TOTAL general — resaltada en
+    // verde claro (pedido explícito del cliente), sin salirse de la tabla.
+    rows.push(amountRow("Primer Pago", totals.primerPago, currency, usdRate, { bold: true, fillColor: "#eaf5d6" }));
 
     const content = [
 
@@ -919,12 +926,13 @@ function buildComparativoTableRows(quote) {
         // en el desglose detallado de cada opción (buildCostTableSection
         // más abajo), que no cambia con este pedido.
         //
-        // "Total Programa" y "Primer Pago" vienen de option.totals (ver
-        // pricing.js#assembleTotals/calculateFirstPayment) — única fuente
-        // de verdad, igual que en summary.js#renderComparisonTable.
+        // "Total Programa" viene de option.totals (ver
+        // pricing.js#assembleTotals) — única fuente de verdad, igual que
+        // en summary.js#renderComparisonTable. "Primer Pago" NO va aquí:
+        // es la ÚLTIMA fila de la tabla, después de "TOTAL" (ver
+        // firstPaymentRow más abajo y su uso en
+        // buildComparativoOverlayDocDefinition).
         ["Total Programa", option => formatCurrency(option.totals.subtotalCursos, currency)],
-
-        ["Primer Pago", option => formatCurrency(option.totals.primerPago, currency)],
 
         [insuranceRowLabel(options), option => formatCurrency(option.insurance.cost, currency)],
 
@@ -988,7 +996,31 @@ function buildComparativoTableRows(quote) {
 
     ];
 
-    return { headerRow, bodyRows, totalRow, columnWidths: ["*", ...options.map(() => 90)] };
+    // Última fila del bloque (después de TOTAL) — fondo verde claro
+    // sutil, pedido explícito del cliente, sin salirse de la tabla.
+    const firstPaymentRow = [
+
+        { text: "Primer Pago", fontSize: 10, bold: true, color: PDF_COLORS.greenDark, fillColor: "#eaf5d6" },
+
+        ...options.map(option => ({
+
+            text: formatCurrency(option.totals.primerPago, currency),
+
+            fontSize: 10,
+
+            bold: true,
+
+            alignment: "right",
+
+            color: PDF_COLORS.greenDark,
+
+            fillColor: "#eaf5d6"
+
+        }))
+
+    ];
+
+    return { headerRow, bodyRows, totalRow, firstPaymentRow, columnWidths: ["*", ...options.map(() => 90)] };
 
 }
 
@@ -1028,7 +1060,7 @@ function buildComparativoOverlayDocDefinition(quote, student) {
 
     ];
 
-    const { headerRow, bodyRows, totalRow, columnWidths } = buildComparativoTableRows(quote);
+    const { headerRow, bodyRows, totalRow, firstPaymentRow, columnWidths } = buildComparativoTableRows(quote);
 
     return {
 
@@ -1053,7 +1085,7 @@ function buildComparativoOverlayDocDefinition(quote, student) {
 
             {
 
-                table: { headerRows: 1, widths: columnWidths, body: [headerRow, ...bodyRows, totalRow] },
+                table: { headerRows: 1, widths: columnWidths, body: [headerRow, ...bodyRows, totalRow, firstPaymentRow] },
 
                 layout: "lightHorizontalLines"
 
@@ -1176,11 +1208,15 @@ async function generateQuotationPdfBlob(quote, student, advisor) {
 
     const comparativoOverlayBytes = await renderPdfMakeBuffer(buildComparativoOverlayDocDefinition(quote, student));
 
+    // Onshore: SIEMPRE la misma portada, sin importar la ciudad. Offshore
+    // mantiene la lógica existente (portada según la ciudad principal).
+    const isOnshore = student.application_type === "Onshore";
+
     const primaryCity = options[0] && options[0].courses[0] ? options[0].courses[0].city : null;
 
     const [coverBytes, templateBytes, comparativoTemplateBytes, extraTemplateBytes] = await Promise.all([
 
-        primaryCity ? fetchCoverPdfBytes(primaryCity) : Promise.resolve(null),
+        isOnshore ? fetchOnshoreCoverPdfBytes() : (primaryCity ? fetchCoverPdfBytes(primaryCity) : Promise.resolve(null)),
 
         fetchPage2TemplateBytes(),
 

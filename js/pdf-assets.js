@@ -139,6 +139,48 @@ async function fetchComparativoTemplateBytes() {
 
 }
 
+/*
+    Portada ONSHORE: siempre la misma, sin importar la ciudad — a
+    diferencia de fetchCoverPdfBytes(city) (Offshore), que sigue
+    dependiendo de la ciudad principal. Ver pdf.js#generateQuotationPdfBlob.
+*/
+
+let onshoreCoverPdfBytesCache = null;
+
+let onshoreCoverPdfLoadingPromise = null;
+
+async function fetchOnshoreCoverPdfBytes() {
+
+    if (onshoreCoverPdfBytesCache) return onshoreCoverPdfBytesCache;
+
+    if (!onshoreCoverPdfLoadingPromise) {
+
+        onshoreCoverPdfLoadingPromise = (async () => {
+
+            try {
+
+                const response = await fetch(`${PDF_ASSETS_BASE_PATH}/portada-onshore.pdf`);
+
+                if (!response.ok) return null;
+
+                return new Uint8Array(await response.arrayBuffer());
+
+            } catch (error) {
+
+                return null;
+
+            }
+
+        })();
+
+    }
+
+    onshoreCoverPdfBytesCache = await onshoreCoverPdfLoadingPromise;
+
+    return onshoreCoverPdfBytesCache;
+
+}
+
 const coverPdfBytesCache = {};
 
 async function fetchCoverPdfBytes(city) {
