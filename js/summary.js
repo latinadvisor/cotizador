@@ -303,11 +303,11 @@ function renderWarnings(options) {
  TABLA COMPARATIVA
  ----------------------------------------------------------
  Una columna por opción de colegio. Cada fila es un concepto
- general (Ciudad, Programa, Duración, Matrícula, Materiales,
- Total Programa, Seguro Médico, Visa, Adicionales, Descuento si
- aplica, Costos Extras si aplica, Total). Ninguna fila suma
- columnas entre sí — son alternativas de comparación, no
- partidas de un mismo total.
+ general (Ciudad, Programa, Duración, Total Programa, Primer
+ Pago, Seguro Médico, Visa, Adicionales, Descuento si aplica,
+ Costos Extras si aplica, Total). Ninguna fila suma columnas
+ entre sí — son alternativas de comparación, no partidas de un
+ mismo total.
 ==========================================================*/
 
 function renderComparisonTable(quote) {
@@ -351,17 +351,14 @@ function renderComparisonTable(quote) {
         // con el Curso, en "Total Programa". Siguen viéndose por separado
         // en el desglose detallado de cada opción (buildCostTableSection
         // en pdf.js), que no cambia con este pedido.
-        buildComparisonRow("Total Programa", options, option => formatCurrency(
+        //
+        // "Total Programa" y "Primer Pago" se leen directamente de
+        // option.totals (ver pricing.js#assembleTotals/calculateFirstPayment)
+        // — única fuente de verdad, nunca recalculados aquí, para que
+        // pantalla y PDF muestren siempre exactamente lo mismo.
+        buildComparisonRow("Total Programa", options, option => formatCurrency(option.totals.subtotalCursos, currency)),
 
-            sumOptionCourseField(option.courses, "price") +
-
-            sumOptionCourseField(option.courses, "enrollmentFee") +
-
-            sumOptionCourseField(option.courses, "materialsFee"),
-
-            currency
-
-        )),
+        buildComparisonRow("Primer Pago", options, option => formatCurrency(option.totals.primerPago, currency)),
 
         buildComparisonRow(insuranceRowLabel(options), options, option => formatCurrency(option.insurance.cost, currency)),
 
@@ -506,12 +503,6 @@ function describeOptionCities(option) {
     const cities = [...new Set(option.courses.map(course => course.city).filter(Boolean))];
 
     return cities.length > 0 ? cities.join(" / ") : "-";
-
-}
-
-function sumOptionCourseField(courses, field) {
-
-    return (courses || []).reduce((sum, course) => sum + (course[field] || 0), 0);
 
 }
 

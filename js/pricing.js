@@ -179,7 +179,11 @@ async function calculateOptionQuote(courseOption, shared) {
 
         offshoreExtras: shared.offshoreExtras,
 
-        servicesSubtotal: shared.servicesSubtotal
+        servicesSubtotal: shared.servicesSubtotal,
+
+        applicationType: shared.student.application_type,
+
+        totalWeeks
 
     });
 
@@ -357,7 +361,11 @@ async function calculateCourseLine(course) {
 
         discountSource: details.discountSource,
 
-        subtotal: grossSubtotal - details.discount
+        subtotal: grossSubtotal - details.discount,
+
+        // Primer depósito Onshore (Cursos!L) — ver
+        // pricing.js#calculateFirstPayment. Irrelevante para Offshore.
+        firstPaymentDeposit: details.firstPaymentDeposit
 
     };
 
@@ -705,7 +713,48 @@ function sumBySubtotal(lines) {
 
 }
 
-function assembleTotals({ courseLines, insurance, visa, secondApplicationSurcharge, offshoreExtras, servicesSubtotal }) {
+/*==========================================================
+ 7.2 PRIMER PAGO
+ ----------------------------------------------------------
+ Única fuente de verdad para este valor — alimenta por igual el
+ comparativo/resumen en pantalla y el PDF (ninguno de los dos
+ recalcula esto por su cuenta).
+
+ Offshore: Programa+Matrícula+Materiales ("subtotalCursos", el
+ mismo que ya se muestra como "Total Programa") — 100% si el
+ total de semanas de la opción es menor a 25, 50% si es 25 o
+ más — más Visa y Seguro médico.
+
+ Onshore: suma del "Primer depósito" (Cursos!L) de cada curso de
+ la opción, más Visa y Seguro médico. Nunca un único depósito
+ para toda la opción: cada curso busca su propio valor en la
+ hoja (ver database.js#fetchCourseDetails).
+
+ En ambos casos, "Visa" es el MISMO valor ya calculado para el
+ resto de la cotización (calculateVisa) MÁS el recargo desde la
+ 3ra aplicación si aplica (calculateSecondApplicationSurcharge)
+ — nunca una segunda lógica de Visa independiente.
+==========================================================*/
+
+function calculateFirstPayment({ applicationType, totalWeeks, courseLines, subtotalCursos, insurance, visa, secondApplicationSurcharge }) {
+
+    const totalVisaCost = visa.cost + secondApplicationSurcharge.totalAmount;
+
+    if (applicationType === "Onshore") {
+
+        const depositsSum = courseLines.reduce((sum, line) => sum + (line.firstPaymentDeposit || 0), 0);
+
+        return depositsSum + totalVisaCost + insurance.cost;
+
+    }
+
+    const programPortion = totalWeeks >= 25 ? subtotalCursos * 0.5 : subtotalCursos;
+
+    return programPortion + totalVisaCost + insurance.cost;
+
+}
+
+function assembleTotals({ courseLines, insurance, visa, secondApplicationSurcharge, offshoreExtras, servicesSubtotal, applicationType, totalWeeks }) {
 
     const subtotalCursos = courseLines.reduce((sum, line) => sum + line.price + line.enrollmentFee + line.materialsFee, 0);
 
@@ -717,6 +766,24 @@ function assembleTotals({ courseLines, insurance, visa, secondApplicationSurchar
 
     const total = subtotalCursos + otrosCargos + adicionales - descuento;
 
+    const primerPago = calculateFirstPayment({
+
+        applicationType,
+
+        totalWeeks,
+
+        courseLines,
+
+        subtotalCursos,
+
+        insurance,
+
+        visa,
+
+        secondApplicationSurcharge
+
+    });
+
     return {
 
         subtotalCursos,
@@ -727,7 +794,9 @@ function assembleTotals({ courseLines, insurance, visa, secondApplicationSurchar
 
         descuento,
 
-        total
+        total,
+
+        primerPago
 
     };
 

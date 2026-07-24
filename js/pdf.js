@@ -586,6 +586,19 @@ function buildCostTableSection(quote, currency, usdRate) {
 
     });
 
+    /*
+        "Total Programa" (Curso + Matrícula + Materiales, ver
+        pricing.js#assembleTotals) y "Primer Pago" (ver
+        pricing.js#calculateFirstPayment) — ambos ya calculados como
+        parte de quote.totals, nunca recalculados aquí, para que el PDF
+        muestre siempre exactamente lo mismo que el comparativo en
+        pantalla (summary.js#renderComparisonTable).
+    */
+
+    courseRows.push(amountRow("Total Programa", quote.totals.subtotalCursos, currency, usdRate, { bold: true }));
+
+    courseRows.push(amountRow("Primer Pago", quote.totals.primerPago, currency, usdRate, { bold: true }));
+
     const otherChargeRows = [];
 
     const insuranceLabel = quote.insurance.name ? `Seguro médico (${quote.insurance.name})` : "Seguro médico";
@@ -874,7 +887,7 @@ function buildNotesSection(quote) {
  Se estampa sobre assets/img/comparativo.pdf. Reutiliza los
  mismos helpers de derivación de datos que la tabla comparativa
  en pantalla (js/summary.js: describeOptionPrograms,
- describeOptionCities, sumOptionCourseField, insuranceRowLabel)
+ describeOptionCities, insuranceRowLabel)
  para que ambas tablas
  siempre muestren exactamente lo mismo. A diferencia del detalle
  por opción, esta tabla muestra un solo valor por celda (la
@@ -905,17 +918,13 @@ function buildComparativoTableRows(quote) {
         // con el Curso, en "Total Programa". Siguen viéndose por separado
         // en el desglose detallado de cada opción (buildCostTableSection
         // más abajo), que no cambia con este pedido.
-        ["Total Programa", option => formatCurrency(
+        //
+        // "Total Programa" y "Primer Pago" vienen de option.totals (ver
+        // pricing.js#assembleTotals/calculateFirstPayment) — única fuente
+        // de verdad, igual que en summary.js#renderComparisonTable.
+        ["Total Programa", option => formatCurrency(option.totals.subtotalCursos, currency)],
 
-            sumOptionCourseField(option.courses, "price") +
-
-            sumOptionCourseField(option.courses, "enrollmentFee") +
-
-            sumOptionCourseField(option.courses, "materialsFee"),
-
-            currency
-
-        )],
+        ["Primer Pago", option => formatCurrency(option.totals.primerPago, currency)],
 
         [insuranceRowLabel(options), option => formatCurrency(option.insurance.cost, currency)],
 

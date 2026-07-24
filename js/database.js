@@ -517,7 +517,9 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
             discount: 0,
 
-            discountSource: null
+            discountSource: null,
+
+            firstPaymentDeposit: 0
 
         };
 
@@ -543,7 +545,11 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
         discount: discountInfo.amount,
 
-        discountSource: discountInfo.description
+        discountSource: discountInfo.description,
+
+        // Primer depósito Onshore (Cursos!L, columna "Primer deposito") —
+        // ver pricing.js#calculateFirstPayment.
+        firstPaymentDeposit: Number(row["Primer deposito"]) || 0
 
     };
 
