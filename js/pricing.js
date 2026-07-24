@@ -444,15 +444,18 @@ async function calculateVisa({ courseLines, destination, numberApplicants }) {
 
 
 /*==========================================================
- 6. SEGUNDA APLICACIÓN (ONSHORE)
+ 6. RECARGO DE VISA A PARTIR DE LA TERCERA APLICACIÓN (ONSHORE)
  ----------------------------------------------------------
- Aplica solo si Onshore y número de aplicación > 1.
+ Aplica solo si Onshore y número de aplicación > 2 — el nombre del
+ parámetro en la hoja "Parametros" ("Recargo tercera aplicación visa
+ (solo onshore)") es la fuente de verdad: la 1ra y 2da aplicación NO
+ llevan este recargo, solo la 3ra en adelante.
  El monto es POR APLICANTE (regla confirmada por el cliente).
 ==========================================================*/
 
 async function calculateSecondApplicationSurcharge({ application_type, application_number, number_applicants }) {
 
-    const applies = application_type === "Onshore" && application_number > 1;
+    const applies = application_type === "Onshore" && application_number > 2;
 
     if (!applies) {
 

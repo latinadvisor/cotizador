@@ -11,9 +11,11 @@
  generales) — eso lo resuelve pricing.js, no este módulo.
 
  Este módulo solo administra: qué opciones existen, cuál está
- activa, y la etiqueta visible de cada pestaña ("Opción N" o,
- una vez elegido el Colegio del primer curso de esa opción,
- "Opción N — {Colegio}").
+ activa, y la etiqueta visible de cada pestaña — siempre
+ "Opción N" según su posición, sin importar el/los colegios
+ elegidos dentro de ella (una misma opción puede combinar
+ programas de distintas instituciones, ver js/pdf.js y
+ js/summary.js para dónde se muestra cada institución).
 ==========================================================*/
 
 
@@ -24,7 +26,7 @@
 
 let optionIdCounter = 0;
 
-let courseOptions = []; // [{ id, collegeLabel }]
+let courseOptions = []; // [{ id }]
 
 let activeOptionId = null;
 
@@ -109,7 +111,7 @@ function createNewOptionEntry() {
 
     const id = optionIdCounter;
 
-    courseOptions.push({ id, collegeLabel: null });
+    courseOptions.push({ id });
 
     return id;
 
@@ -274,61 +276,9 @@ function renderOptionTabButton(option, index) {
 
 function buildOptionLabel(option, index) {
 
-    const base = `Opción ${index + 1}`;
-
-    return option.collegeLabel ? `${base} — ${option.collegeLabel}` : base;
+    return `Opción ${index + 1}`;
 
 }
-
-
-
-/*==========================================================
- ETIQUETA AUTOMÁTICA DE PESTAÑA: "Opción N — {Colegio}"
- ----------------------------------------------------------
- Se actualiza cuando cambia el select "Colegio" del PRIMER
- curso de esa opción (los demás cursos de la misma pestaña no
- afectan la etiqueta de la pestaña).
-==========================================================*/
-
-function updateOptionTabLabel(optionId, collegeValue) {
-
-    const option = courseOptions.find(opt => opt.id === Number(optionId));
-
-    if (!option) return;
-
-    option.collegeLabel = collegeValue || null;
-
-    refreshOptionTabsBar();
-
-}
-
-document.addEventListener("change", event => {
-
-    const target = event.target;
-
-    if (!target.matches || !target.matches('select[id^="college_"]')) return;
-
-    const panel = target.closest(".option-panel");
-
-    if (!panel) return;
-
-    const optionId = Number(panel.dataset.optionId);
-
-    const container = document.getElementById(`coursesContainer-${optionId}`);
-
-    if (!container) return;
-
-    const firstCard = container.querySelector(".course-card");
-
-    if (!firstCard) return;
-
-    const firstCollegeSelect = firstCard.querySelector('select[id^="college_"]');
-
-    if (firstCollegeSelect !== target) return;
-
-    updateOptionTabLabel(optionId, target.value);
-
-});
 
 
 

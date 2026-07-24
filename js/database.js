@@ -710,7 +710,10 @@ function parseMoneyString(value) {
 
     if (value === null || value === undefined) return 0;
 
-    const cleaned = String(value).replace(/[^0-9.-]/g, "");
+    // La hoja usa coma como separador decimal (ej. "$709,80") — se
+    // convierte a punto ANTES de descartar el resto de símbolos, o
+    // "709,80" quedaría como 70980 en vez de 709.80.
+    const cleaned = String(value).replace(",", ".").replace(/[^0-9.-]/g, "");
 
     return Number(cleaned) || 0;
 
@@ -718,7 +721,7 @@ function parseMoneyString(value) {
 
 async function fetchSecondApplicationSurcharge() {
 
-    const value = await fetchParameter("Recargo segunda aplicación Onshore");
+    const value = await fetchParameter("Recargo tercera aplicación visa (solo onshore)");
 
     return parseMoneyString(value);
 

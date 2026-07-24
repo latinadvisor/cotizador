@@ -489,7 +489,7 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
         muestran aquí (Duración sigue disponible en el cuadro verde
         "Estudio por" de la plantilla).
 
-        "optionLabel" (ej. "Opción 1 — Colegio ABC") solo viene
+        "optionLabel" (ej. "Opción 1 — Opción 1") solo viene
         informado cuando la cotización tiene varias opciones de
         colegio (ver pricing.js#calculateOptionQuote) — identifica de
         qué opción es el detalle dentro del PDF combinado. Con una
@@ -503,6 +503,12 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
 
         : [];
 
+    // Institución(es): TODAS las distintas de la opción, no solo la del
+    // primer curso — una opción puede combinar varios colegios (ver
+    // DESGLOSE DE COSTOS más abajo para la institución de cada programa
+    // individual).
+    const institutions = [...new Set((quote.courses || []).map(course => course.college).filter(Boolean))];
+
     const lines = primaryCourse
 
         ? [
@@ -511,7 +517,7 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
 
             infoLine("Fecha de elaboración de la cotización", generatedDate),
 
-            infoLine("Colegio", primaryCourse.college),
+            infoLine(institutions.length > 1 ? "Instituciones" : "Institución", institutions.join(", ")),
 
             infoLine("Nombre del estudiante", student.name),
 
@@ -568,7 +574,9 @@ function buildCostTableSection(quote, currency, usdRate) {
 
     (quote.courses || []).forEach((course, index) => {
 
-        const label = quote.courses.length > 1 ? `Curso ${index + 1} — ${course.program || "-"}` : `Curso — ${course.program || "-"}`;
+        const programLabel = course.college ? `${course.program || "-"} (${course.college})` : (course.program || "-");
+
+        const label = quote.courses.length > 1 ? `Curso ${index + 1} — ${programLabel}` : `Curso — ${programLabel}`;
 
         courseRows.push(amountRow(label, course.price, currency, usdRate));
 
@@ -588,7 +596,7 @@ function buildCostTableSection(quote, currency, usdRate) {
 
     if (quote.secondApplicationSurcharge.applies) {
 
-        otherChargeRows.push(amountRow("Recargo segunda aplicación", quote.secondApplicationSurcharge.totalAmount, currency, usdRate));
+        otherChargeRows.push(amountRow("Recargo tercera aplicación visa", quote.secondApplicationSurcharge.totalAmount, currency, usdRate));
 
     }
 
@@ -786,10 +794,10 @@ function collectNotes(quote) {
         servicesSubtotal) significa cosas DISTINTAS según application_type,
         y ambos casos son mutuamente excluyentes por diseño (una
         cotización es Offshore U Onshore, nunca las dos): en Offshore
-        agrupa traducciones + servicios opcionales; en Onshore con
-        segunda aplicación (o posterior) es EXCLUSIVAMENTE el recargo
-        fijo del Gobierno. En Onshore primera aplicación no hay nada que
-        explicar (no se muestra ninguna de las dos notas).
+        agrupa traducciones + servicios opcionales; en Onshore a partir
+        de la tercera aplicación (o posterior) es EXCLUSIVAMENTE el
+        recargo fijo del Gobierno. En Onshore 1ra/2da aplicación no hay
+        nada que explicar (no se muestra ninguna de las dos notas).
     */
 
     const isOffshore = !!(quote.offshoreExtras && quote.offshoreExtras.applies);
@@ -810,7 +818,7 @@ function collectNotes(quote) {
 
     if (hasExtraCosts) {
 
-        notes.push("Los costos extras correspondientes a exámenes médicos y biométricos son valores genéricos y deben ser pagados directamente a cada entidad proveedora del servicio. Estos valores son informativos y no están incluidos en el total de la cotización.");
+        notes.push("* Costos extras: corresponden a exámenes médicos y biométricos, son valores genéricos y deben ser pagados directamente a cada entidad proveedora del servicio. Estos valores son informativos y no están incluidos en el total de la cotización.");
 
     }
 
@@ -834,7 +842,7 @@ function collectNotes(quote) {
 
         const surchargeAmountText = formatCurrency(secondApplicationSurcharge.perApplicantAmount, quote.currency);
 
-        notes.push(`El valor correspondiente al ítem "Adicionales" corresponde al cargo adicional obligatorio de ${surchargeAmountText} exigido por el Gobierno a partir de la segunda aplicación, aplicable a cada una de las visas que se soliciten.`);
+        notes.push(`El valor correspondiente al ítem "Adicionales" corresponde al cargo adicional obligatorio de ${surchargeAmountText} exigido por el Gobierno a partir de la tercera aplicación, aplicable a cada una de las visas que se soliciten.`);
 
     }
 
@@ -866,7 +874,8 @@ function buildNotesSection(quote) {
  Se estampa sobre assets/img/comparativo.pdf. Reutiliza los
  mismos helpers de derivación de datos que la tabla comparativa
  en pantalla (js/summary.js: describeOptionPrograms,
- sumOptionCourseField, insuranceRowLabel) para que ambas tablas
+ describeOptionCities, sumOptionCourseField, insuranceRowLabel)
+ para que ambas tablas
  siempre muestren exactamente lo mismo. A diferencia del detalle
  por opción, esta tabla muestra un solo valor por celda (la
  moneda de la cotización) — no hay columna USD, tal como lo
@@ -885,7 +894,7 @@ function buildComparativoTableRows(quote) {
 
     const conceptRows = [
 
-        ["Ciudad", option => (option.courses[0] && option.courses[0].city) || "-"],
+        ["Ciudad", option => describeOptionCities(option)],
 
         ["Programa", option => describeOptionPrograms(option)],
 
@@ -894,6 +903,20 @@ function buildComparativoTableRows(quote) {
         ["Matrícula", option => formatCurrency(sumOptionCourseField(option.courses, "enrollmentFee"), currency)],
 
         ["Materiales", option => formatCurrency(sumOptionCourseField(option.courses, "materialsFee"), currency)],
+
+        // Subtotal Curso + Matrícula + Materiales — ver misma fila en
+        // summary.js#renderComparisonTable, ambas tablas deben coincidir.
+        ["Total Programa", option => formatCurrency(
+
+            sumOptionCourseField(option.courses, "price") +
+
+            sumOptionCourseField(option.courses, "enrollmentFee") +
+
+            sumOptionCourseField(option.courses, "materialsFee"),
+
+            currency
+
+        )],
 
         [insuranceRowLabel(options), option => formatCurrency(option.insurance.cost, currency)],
 
@@ -917,7 +940,7 @@ function buildComparativoTableRows(quote) {
 
     if (hasExtraCosts) {
 
-        conceptRows.push(["Costos Extras", () => formatCurrency(quote.extraCosts.total, currency)]);
+        conceptRows.push(["Costos Extras*", () => formatCurrency(quote.extraCosts.total, currency)]);
 
     }
 

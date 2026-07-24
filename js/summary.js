@@ -304,10 +304,10 @@ function renderWarnings(options) {
  ----------------------------------------------------------
  Una columna por opción de colegio. Cada fila es un concepto
  general (Ciudad, Programa, Duración, Matrícula, Materiales,
- Seguro Médico, Visa, Adicionales, Descuento si aplica, Costos
- Extras si aplica, Total). Ninguna fila suma columnas entre sí
- — son alternativas de comparación, no partidas de un mismo
- total.
+ Total Programa, Seguro Médico, Visa, Adicionales, Descuento si
+ aplica, Costos Extras si aplica, Total). Ninguna fila suma
+ columnas entre sí — son alternativas de comparación, no
+ partidas de un mismo total.
 ==========================================================*/
 
 function renderComparisonTable(quote) {
@@ -340,7 +340,7 @@ function renderComparisonTable(quote) {
 
     const rows = [
 
-        buildComparisonRow("Ciudad", options, option => (option.courses[0] && option.courses[0].city) || "-"),
+        buildComparisonRow("Ciudad", options, option => describeOptionCities(option)),
 
         buildComparisonRow("Programa", options, option => describeOptionPrograms(option)),
 
@@ -349,6 +349,22 @@ function renderComparisonTable(quote) {
         buildComparisonRow("Matrícula", options, option => formatCurrency(sumOptionCourseField(option.courses, "enrollmentFee"), currency)),
 
         buildComparisonRow("Materiales", options, option => formatCurrency(sumOptionCourseField(option.courses, "materialsFee"), currency)),
+
+        // Total del PROGRAMA (Curso + Matrícula + Materiales) — a propósito
+        // sin visa/seguro/adicionales/costos extras, que siguen viéndose
+        // por su propia fila. Es un subtotal informativo, no reemplaza el
+        // total general de la cotización (última fila de esta tabla).
+        buildComparisonRow("Total Programa", options, option => formatCurrency(
+
+            sumOptionCourseField(option.courses, "price") +
+
+            sumOptionCourseField(option.courses, "enrollmentFee") +
+
+            sumOptionCourseField(option.courses, "materialsFee"),
+
+            currency
+
+        )),
 
         buildComparisonRow(insuranceRowLabel(options), options, option => formatCurrency(option.insurance.cost, currency)),
 
@@ -376,7 +392,7 @@ function renderComparisonTable(quote) {
 
     if (hasExtraCosts) {
 
-        rows.push(buildComparisonRow("Costos Extras", options, () => formatCurrency(quote.extraCosts.total, currency)));
+        rows.push(buildComparisonRow("Costos Extras*", options, () => formatCurrency(quote.extraCosts.total, currency)));
 
     }
 
@@ -388,7 +404,7 @@ function renderComparisonTable(quote) {
 
             <div class="summary-extra-note">
 
-                Costos Extras: valores genéricos que deben pagarse directamente a cada entidad proveedora del servicio. No están incluidos en el Total.
+                * Costos Extras: valores genéricos que deben pagarse directamente a cada entidad proveedora del servicio. No están incluidos en el Total.
 
             </div>
 
@@ -430,11 +446,69 @@ function buildComparisonRow(label, options, valueFn, extraClass = "") {
 
 }
 
+/*
+    Agrupa los programas CONSECUTIVOS de la misma institución para
+    mostrar el colegio una sola vez entre paréntesis (ej. "General
+    English + Diploma Leadership (ILSC College)"), y por separado
+    cuando cambia de institución (ej. "General English (ILSC College)
+    + Diploma Leadership (Greenwich College)") — una misma opción puede
+    combinar programas de distintos colegios, ver js/course-options.js.
+*/
+
 function describeOptionPrograms(option) {
 
     if (!option.courses || option.courses.length === 0) return "-";
 
-    return option.courses.map(course => course.program || course.type || "-").join(" + ");
+    const clusters = [];
+
+    option.courses.forEach(course => {
+
+        const label = course.program || course.type || "-";
+
+        const college = course.college || "";
+
+        const lastCluster = clusters[clusters.length - 1];
+
+        if (lastCluster && lastCluster.college === college) {
+
+            lastCluster.labels.push(label);
+
+        } else {
+
+            clusters.push({ college, labels: [label] });
+
+        }
+
+    });
+
+    return clusters
+
+        .map(cluster => {
+
+            const joinedLabels = cluster.labels.join(" + ");
+
+            return cluster.college ? `${joinedLabels} (${cluster.college})` : joinedLabels;
+
+        })
+
+        .join(" + ");
+
+}
+
+/*
+    Todas las ciudades DISTINTAS seleccionadas dentro de la opción,
+    separadas por " / " (ej. "Sydney / Melbourne") — nunca solo la del
+    primer curso, ya que distintos programas de una misma opción pueden
+    quedar en ciudades distintas.
+*/
+
+function describeOptionCities(option) {
+
+    if (!option.courses || option.courses.length === 0) return "-";
+
+    const cities = [...new Set(option.courses.map(course => course.city).filter(Boolean))];
+
+    return cities.length > 0 ? cities.join(" / ") : "-";
 
 }
 
