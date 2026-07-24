@@ -900,12 +900,11 @@ function buildComparativoTableRows(quote) {
 
         ["Duración", option => weeksToMonthsLabel(computeTotalWeeks(option.courses))],
 
-        ["Matrícula", option => formatCurrency(sumOptionCourseField(option.courses, "enrollmentFee"), currency)],
-
-        ["Materiales", option => formatCurrency(sumOptionCourseField(option.courses, "materialsFee"), currency)],
-
-        // Subtotal Curso + Matrícula + Materiales — ver misma fila en
-        // summary.js#renderComparisonTable, ambas tablas deben coincidir.
+        // Matrícula/Materiales NO se muestran como filas propias en el
+        // comparativo (pedido explícito del cliente) — solo su suma junto
+        // con el Curso, en "Total Programa". Siguen viéndose por separado
+        // en el desglose detallado de cada opción (buildCostTableSection
+        // más abajo), que no cambia con este pedido.
         ["Total Programa", option => formatCurrency(
 
             sumOptionCourseField(option.courses, "price") +

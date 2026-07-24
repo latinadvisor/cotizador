@@ -346,14 +346,11 @@ function renderComparisonTable(quote) {
 
         buildComparisonRow("Duración", options, option => weeksToMonthsLabel(computeTotalWeeks(option.courses))),
 
-        buildComparisonRow("Matrícula", options, option => formatCurrency(sumOptionCourseField(option.courses, "enrollmentFee"), currency)),
-
-        buildComparisonRow("Materiales", options, option => formatCurrency(sumOptionCourseField(option.courses, "materialsFee"), currency)),
-
-        // Total del PROGRAMA (Curso + Matrícula + Materiales) — a propósito
-        // sin visa/seguro/adicionales/costos extras, que siguen viéndose
-        // por su propia fila. Es un subtotal informativo, no reemplaza el
-        // total general de la cotización (última fila de esta tabla).
+        // Matrícula/Materiales NO se muestran como filas propias en el
+        // comparativo (pedido explícito del cliente) — solo su suma junto
+        // con el Curso, en "Total Programa". Siguen viéndose por separado
+        // en el desglose detallado de cada opción (buildCostTableSection
+        // en pdf.js), que no cambia con este pedido.
         buildComparisonRow("Total Programa", options, option => formatCurrency(
 
             sumOptionCourseField(option.courses, "price") +
