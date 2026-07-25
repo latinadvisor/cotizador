@@ -420,29 +420,21 @@ function applyInstitutionEnrollmentFeeRule(courseLines, applicationType) {
 
         const originalEnrollmentFee = line.enrollmentFee;
 
-        let chargedEnrollmentFee;
+        const isWaivedByThisCourse = applicationType === "Onshore" && line.isExistingStudent;
 
-        let note;
+        /*
+            El MONTO cobrado depende solo de "¿es el primer curso de este
+            colegio en la opción?" (nunca se cobra dos veces la matrícula
+            de un mismo colegio). La ETIQUETA/motivo, en cambio, refleja
+            la respuesta de ESTE curso en particular — así, si dos cursos
+            del mismo colegio responden ambos "Sí", los DOS muestran "ya
+            es estudiante de la institución" en vez de que el segundo
+            diga "incluida con otro curso" (pedido explícito del cliente).
+        */
 
-        if (!isFirstForCollege) {
+        const chargedEnrollmentFee = (isFirstForCollege && !isWaivedByThisCourse) ? originalEnrollmentFee : 0;
 
-            chargedEnrollmentFee = 0;
-
-            note = "included";
-
-        } else if (applicationType === "Onshore" && line.isExistingStudent) {
-
-            chargedEnrollmentFee = 0;
-
-            note = "waived";
-
-        } else {
-
-            chargedEnrollmentFee = originalEnrollmentFee;
-
-            note = "charged";
-
-        }
+        const note = isWaivedByThisCourse ? "waived" : (isFirstForCollege ? "charged" : "included");
 
         line.enrollmentFeeOriginal = originalEnrollmentFee;
 
