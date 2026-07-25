@@ -553,6 +553,24 @@ function wireStudentCardEvents() {
 
     }
 
+    /*
+        La pregunta "¿Es estudiante de la institución?" (courses.js) solo
+        se muestra en Onshore — se refresca en TODAS las tarjetas de
+        curso de TODAS las opciones cuando cambia el Tipo de Aplicación.
+    */
+
+    const applicationTypeSelect = document.getElementById("application_type");
+
+    if (applicationTypeSelect) {
+
+        applicationTypeSelect.addEventListener("change", () => {
+
+            if (typeof refreshExistingStudentFieldsVisibility === "function") refreshExistingStudentFieldsVisibility();
+
+        });
+
+    }
+
 }
 
 

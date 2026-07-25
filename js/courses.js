@@ -127,6 +127,8 @@ function createCourseCard(id, optionId) {
 
             })}
 
+            ${createExistingStudentField(id)}
+
             ${createSelect({
 
                 label:"Ciudad",
@@ -180,6 +182,86 @@ function createCourseCard(id, optionId) {
 
 
 /*==========================================================
+ CAMPO "¿ES ESTUDIANTE DE LA INSTITUCIÓN?" (SOLO ONSHORE)
+ ----------------------------------------------------------
+ Igual filosofía que createWeeksField(): se construye por fuera
+ de createSelect() porque necesita ocultarse/mostrarse como un
+ todo, esta vez según el Tipo de Aplicación (Onshore/Offshore)
+ del estudiante, no según el curso — ver toggleExistingStudentField()
+ y student.js (el select #application_type dispara el refresco
+ en TODAS las tarjetas de curso, de todas las opciones).
+
+ Si es Onshore y la asesora marca "Sí", la matrícula de ESE
+ colegio queda en $0 (ver pricing.js#applyInstitutionEnrollmentFeeRule)
+ — el estudiante ya pertenece a la institución.
+==========================================================*/
+
+function createExistingStudentField(id) {
+
+    return `
+
+    <div
+        class="form-group hidden"
+        id="existingStudentField_${id}">
+
+        <label for="existing_student_${id}">
+
+            ¿Es estudiante de la institución?
+
+        </label>
+
+        <select id="existing_student_${id}">
+
+            <option value="No">No</option>
+
+            <option value="Sí">Sí</option>
+
+        </select>
+
+    </div>
+
+    `;
+
+}
+
+function toggleExistingStudentField(id, applicationType) {
+
+    const field = document.getElementById(`existingStudentField_${id}`);
+
+    if (!field) return;
+
+    field.classList.toggle("hidden", applicationType !== "Onshore");
+
+}
+
+/*
+    Refresca la visibilidad en TODAS las tarjetas de curso de TODAS las
+    opciones — llamado desde student.js cuando cambia #application_type.
+*/
+
+function refreshExistingStudentFieldsVisibility() {
+
+    const applicationType = getCurrentApplicationType();
+
+    document.querySelectorAll(".course-card").forEach(card => {
+
+        toggleExistingStudentField(card.dataset.courseId, applicationType);
+
+    });
+
+}
+
+function getCurrentApplicationType() {
+
+    const select = document.getElementById("application_type");
+
+    return select ? select.value : "";
+
+}
+
+
+
+/*==========================================================
  CAMPO "DURACIÓN (SEMANAS)"
  ----------------------------------------------------------
  Se construye por fuera de createInput() porque necesita ser
@@ -226,6 +308,8 @@ async function initializeCourseCard(id) {
     attachCourseCardEvents(id);
 
     toggleWeeksField(id, "");
+
+    toggleExistingStudentField(id, getCurrentApplicationType());
 
     const colleges = await fetchColleges(getCurrentDestination());
 
@@ -649,7 +733,11 @@ function getAllCoursesData(optionId) {
 
             program: document.getElementById(`program_${id}`).value,
 
-            weeks: document.getElementById(`weeks_${id}`).value
+            weeks: document.getElementById(`weeks_${id}`).value,
+
+            // Solo tiene efecto en Onshore — ver
+            // pricing.js#applyInstitutionEnrollmentFeeRule.
+            isExistingStudent: document.getElementById(`existing_student_${id}`).value === "Sí"
 
         });
 

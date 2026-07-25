@@ -143,6 +143,8 @@ async function calculateOptionQuote(courseOption, shared) {
 
     const courseLines = await calculateAllCourseLines(courseOption.courses);
 
+    applyInstitutionEnrollmentFeeRule(courseLines, shared.student.application_type);
+
     const totalWeeks = computeTotalWeeks(courseLines);
 
     const insurance = await calculateInsurance({
@@ -365,7 +367,11 @@ async function calculateCourseLine(course) {
 
         // Primer depósito Onshore (Cursos!L) — ver
         // pricing.js#calculateFirstPayment. Irrelevante para Offshore.
-        firstPaymentDeposit: details.firstPaymentDeposit
+        firstPaymentDeposit: details.firstPaymentDeposit,
+
+        // "¿Es estudiante de la institución?" (solo se pregunta/usa en
+        // Onshore) — ver pricing.js#applyInstitutionEnrollmentFeeRule.
+        isExistingStudent: !!course.isExistingStudent
 
     };
 
@@ -374,6 +380,81 @@ async function calculateCourseLine(course) {
 async function calculateAllCourseLines(courses) {
 
     return Promise.all(courses.map(calculateCourseLine));
+
+}
+
+/*==========================================================
+ 3.1 REGLA DE MATRÍCULA POR INSTITUCIÓN (no por curso)
+ ----------------------------------------------------------
+ La matrícula se cobra UNA SOLA VEZ por colegio DENTRO DE CADA
+ OPCIÓN, sin importar cuántos cursos tenga esa opción en ese
+ colegio (pedido explícito del cliente). Si la cotización es
+ Onshore y la asesora marca "¿Es estudiante de la institución?"
+ = Sí en el PRIMER curso de ese colegio, la matrícula de ese
+ colegio queda en $0 — el estudiante ya pertenece a la
+ institución. Offshore nunca usa isExistingStudent (la pregunta
+ ni siquiera se muestra ahí, ver courses.js).
+
+ Se SOBREESCRIBEN enrollmentFee/subtotal en el mismo courseLine,
+ en vez de calcular esto aparte, para que todo lo que YA lee
+ esos dos campos (assembleTotals más abajo, el desglose del PDF,
+ la sincronización de líneas de curso con GHL en app.js) use
+ automáticamente el valor correcto sin tener que tocar cada uno
+ de esos lugares — única fuente de verdad, como pidió el
+ cliente. enrollmentFeeOriginal/enrollmentFeeNote quedan
+ disponibles solo para que el PDF pueda explicar el porqué del
+ $0 en cada línea (ver pdf.js#buildCostTableSection).
+==========================================================*/
+
+function applyInstitutionEnrollmentFeeRule(courseLines, applicationType) {
+
+    const seenColleges = new Set();
+
+    courseLines.forEach(line => {
+
+        const college = line.college || "";
+
+        const isFirstForCollege = !seenColleges.has(college);
+
+        seenColleges.add(college);
+
+        const originalEnrollmentFee = line.enrollmentFee;
+
+        let chargedEnrollmentFee;
+
+        let note;
+
+        if (!isFirstForCollege) {
+
+            chargedEnrollmentFee = 0;
+
+            note = "included";
+
+        } else if (applicationType === "Onshore" && line.isExistingStudent) {
+
+            chargedEnrollmentFee = 0;
+
+            note = "waived";
+
+        } else {
+
+            chargedEnrollmentFee = originalEnrollmentFee;
+
+            note = "charged";
+
+        }
+
+        line.enrollmentFeeOriginal = originalEnrollmentFee;
+
+        line.enrollmentFee = chargedEnrollmentFee;
+
+        line.enrollmentFeeNote = note;
+
+        line.subtotal = line.price + chargedEnrollmentFee + line.materialsFee - line.discount;
+
+    });
+
+    return courseLines;
 
 }
 

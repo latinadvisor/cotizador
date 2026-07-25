@@ -586,7 +586,24 @@ function buildCostTableSection(quote, currency, usdRate) {
 
         courseRows.push(amountRow(label, course.price, currency, usdRate));
 
-        courseRows.push(amountRow("Matrícula", course.enrollmentFee, currency, usdRate));
+        /*
+            La matrícula se cobra UNA sola vez por institución dentro de
+            la opción (ver pricing.js#applyInstitutionEnrollmentFeeRule) —
+            el valor ya viene correcto (0 cuando no corresponde cobrarla
+            de nuevo); acá solo se explica el motivo del $0 en la etiqueta.
+        */
+
+        const enrollmentFeeLabel = course.enrollmentFeeNote === "waived"
+
+            ? "Matrícula (ya es estudiante de la institución)"
+
+            : course.enrollmentFeeNote === "included"
+
+                ? "Matrícula (incluida con otro curso de esta institución)"
+
+                : "Matrícula";
+
+        courseRows.push(amountRow(enrollmentFeeLabel, course.enrollmentFee, currency, usdRate));
 
         courseRows.push(amountRow("Materiales", course.materialsFee, currency, usdRate));
 
@@ -715,6 +732,21 @@ function buildResumenFinancieroSection(quote, currency, usdRate) {
     // verde claro (pedido explícito del cliente), sin salirse de la tabla.
     rows.push(amountRow("Primer Pago", totals.primerPago, currency, usdRate, { bold: true, fillColor: "#eaf5d6" }));
 
+    /*
+        "Total de Costos Extras": informativo (nunca se suma al TOTAL,
+        ver pricing.js#calculateExtraCosts), pero AHORA es una fila más
+        de esta MISMA tabla (antes era una tabla aparte con su propio
+        layout, lo que la desalineaba del resto — ver captura del
+        cliente). Sigue distinguiéndose con fondo gris, sin salirse ya
+        del cuadro ni desalinear columnas.
+    */
+
+    if (quote.extraCosts && quote.extraCosts.applies) {
+
+        rows.push(amountRow("Total de Costos Extras", quote.extraCosts.total, currency, usdRate, { bold: true, fillColor: "#e8e8e8" }));
+
+    }
+
     const content = [
 
         { text: "Resumen Financiero", style: "sectionTitle", margin: [0, 10, 0, 6] },
@@ -728,43 +760,6 @@ function buildResumenFinancieroSection(quote, currency, usdRate) {
         }
 
     ];
-
-    /*
-        "Total de Costos Extras": informativo, visualmente
-        diferenciado (fondo gris, línea delimitada arriba/abajo) y
-        DELIBERADAMENTE fuera de la tabla de arriba — nunca debe
-        sumarse al TOTAL (ver pricing.js#calculateExtraCosts).
-    */
-
-    if (quote.extraCosts && quote.extraCosts.applies) {
-
-        const extraRow = amountRow("Total de Costos Extras", quote.extraCosts.total, currency, usdRate, { bold: true })
-
-            .map(cell => ({ ...cell, fillColor: "#e8e8e8" }));
-
-        content.push(
-
-            {
-
-                table: { widths: ["*", 90, 90], body: [extraRow] },
-
-                layout: {
-
-                    hLineWidth: () => 1,
-
-                    vLineWidth: () => 0,
-
-                    hLineColor: () => PDF_COLORS.border
-
-                },
-
-                margin: [0, 4, 0, 0]
-
-            }
-
-        );
-
-    }
 
     return content;
 
