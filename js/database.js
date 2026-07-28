@@ -54,14 +54,16 @@
    comparación de texto en este archivo es case-insensitive
    (ver normalize()) y los tipos se normalizan siempre a
    MAYÚSCULAS antes de exponerse a la UI.
- - La hoja "Cursos" trae columnas de Promoción y Total ya
-   calculadas manualmente. Por decisión del cliente, la
-   columna "Promoción" de "Cursos" tiene PRIORIDAD cuando está
-   presente (incluso si es 0); la hoja "Promociones" solo se
-   usa como respaldo cuando esa celda está vacía. El total
-   nunca se lee de la hoja: siempre se recalcula en pricing.js
-   a partir de Valor semana × Duración + Matrícula + Materiales,
-   para no depender de una celda que podría quedar desactualizada.
+ - La hoja "Cursos" trae una columna "Total" ya calculada
+   manualmente, que nunca se lee: el precio siempre se
+   recalcula en este archivo a partir de Valor semana ×
+   Duración (+ Matrícula/Materiales en pricing.js), para no
+   depender de una celda que podría quedar desactualizada.
+ - Los descuentos ya NO vienen de una columna "Promoción" en
+   Cursos: desde la v3 (Motor de Promociones) toda promoción
+   vive exclusivamente en la hoja "Promociones", evaluada por
+   evaluatePromotionsForCourse() más abajo. Ver esa sección
+   para el detalle de columnas/tipos soportados.
 ==========================================================*/
 
 
@@ -464,32 +466,255 @@ async function fetchProgramsByCourseSelection({ college, city, type, subtype }) 
      "Duración" de la hoja — el cotizador no la pide.
 ==========================================================*/
 
-async function resolveCourseDiscount(cursoRow, college, program) {
+/*==========================================================
+ MOTOR DE PROMOCIONES
+ ----------------------------------------------------------
+ Reemplaza por completo el mecanismo viejo (columna "Promoción"
+ de Cursos + hoja "Promociones" con match Colegio+Nombre Curso).
+ Decisión del cliente: las promociones activas de ese mecanismo
+ deben migrarse a mano a la hoja nueva; no coexisten los dos.
 
-    const cursoPromo = cursoRow["Promoción"];
+ La hoja "Promociones" ahora trae UNA fila por regla, con estas
+ columnas (vacío en un criterio = aplica a todos):
 
-    if (cursoPromo !== null && cursoPromo !== undefined) {
+   ID_PROMOCION, ACTIVA, COLEGIO, CAMPUS, PROGRAMA, SUBPROGRAMA,
+   MODALIDAD, HORARIO, NACIONALIDAD, CIUDAD, SEMANAS_MIN,
+   SEMANAS_MAX, PRIORIDAD, COMBINABLE, TIPO_PROMOCION, VALOR,
+   OBSERVACIONES
 
-        const amount = Number(cursoPromo) || 0;
+ CAMPUS se compara contra la Ciudad del curso (hoy no existe un
+ concepto de "campus" separado en la hoja Cursos). MODALIDAD se
+ compara contra el Tipo de Curso (ELICOS/VET/HE).
 
-        return { amount, description: amount > 0 ? "Promoción del curso" : null };
+ Cuando varias filas coinciden en el mismo curso: se ordenan por
+ PRIORIDAD (menor número = mayor prioridad) y se aplica siempre
+ la primera. Si esa fila tiene COMBINABLE=SI, se van sumando las
+ siguientes (en orden de prioridad) mientras también sean
+ COMBINABLE=SI; se detiene en la primera que no lo sea.
 
-    }
+ SEMANAS_GRATIS es un caso especial: es un BONO INFORMATIVO, no
+ un descuento (caso real confirmado: "Aussie English Bonus
+ Weeks" — el estudiante paga el precio completo de las semanas
+ reservadas, la semana de regalo es tiempo de estudio extra que
+ NUNCA resta de Total Programa/Descuento/Total). Por eso se
+ excluye del cálculo de precio en fetchCourseDetails y solo
+ aparece como nota en el bloque "🎉 Promoción aplicada" del PDF
+ (ver database.js#buildPromotionEffect / pdf.js#buildPromotionBlock).
+==========================================================*/
 
-    const { promociones } = await loadAllSheetsData();
+function criterionMatches(cellValue, candidate) {
 
-    const match = promociones.find(row =>
-        normalize(row["Colegio"]) === normalize(college) &&
-        normalize(row["Nombre Curso"]) === normalize(program)
-    );
+    const cell = normalize(cellValue);
 
-    if (!match) return { amount: 0, description: null };
+    if (!cell) return true; // vacío = aplica a todos
 
-    return { amount: Number(match["valor"]) || 0, description: match["Promoción"] || "Promoción" };
+    return cell === normalize(candidate);
 
 }
 
-async function fetchCourseDetails({ college, city, type, subtype, program, weeks }) {
+function weeksInRange(row, weeks) {
+
+    const min = row["SEMANAS_MIN"];
+
+    const max = row["SEMANAS_MAX"];
+
+    if (min !== "" && min !== null && min !== undefined && weeks < Number(min)) return false;
+
+    if (max !== "" && max !== null && max !== undefined && weeks > Number(max)) return false;
+
+    return true;
+
+}
+
+function defaultPromotionDescription(tipo, valor) {
+
+    switch (tipo) {
+
+        case "precio_semana_especial": return `Precio especial por semana: $${valor}`;
+
+        case "descuento_porcentaje": return `${valor}% de descuento`;
+
+        case "descuento_fijo": return `Descuento de $${valor}`;
+
+        case "semanas_gratis": return `Incluye ${valor} semana(s) adicional(es) de estudio sin costo`;
+
+        case "pague_x_estudie_y": return `Paga ${valor} semanas`;
+
+        case "matricula_gratis": return "Matrícula gratis";
+
+        case "materiales_gratis": return "Materiales gratis";
+
+        default: return "Promoción";
+
+    }
+
+}
+
+function buildPromotionEffect(row) {
+
+    const tipo = normalize(row["TIPO_PROMOCION"]);
+
+    const valor = Number(row["VALOR"]) || 0;
+
+    const description = String(row["OBSERVACIONES"] || "").trim() || defaultPromotionDescription(tipo, valor);
+
+    /*
+        SEMANAS_GRATIS es un BONO INFORMATIVO, no un descuento (decisión
+        confirmada del cliente con el caso real "Aussie English Bonus
+        Weeks"): el estudiante paga el precio completo de las semanas
+        que reserva; la(s) semana(s) de regalo se suman a su tiempo de
+        estudio real pero NUNCA restan de "Total Programa"/"Descuento"/
+        "Total" (igual que su duración tampoco cuenta para Visa/Seguro/
+        el umbral de 25 semanas — ver evaluatePromotionsForCourse). Por
+        eso `isPriceAffecting: false` — fetchCourseDetails la excluye
+        del cálculo de precio/descuento y solo la muestra como nota en
+        el PDF (ver pdf.js#buildPromotionBlock).
+    */
+
+    const effect = {
+
+        id: row["ID_PROMOCION"],
+
+        description,
+
+        isPriceAffecting: tipo !== "semanas_gratis",
+
+        weeklyRateOverride: null,
+
+        chargeableWeeksOverride: null,
+
+        percentOff: 0,
+
+        fixedOff: 0,
+
+        waiveEnrollment: false,
+
+        waiveMaterials: false
+
+    };
+
+    if (tipo === "precio_semana_especial") effect.weeklyRateOverride = valor;
+
+    else if (tipo === "descuento_porcentaje") effect.percentOff = valor;
+
+    else if (tipo === "descuento_fijo") effect.fixedOff = valor;
+
+    else if (tipo === "pague_x_estudie_y") effect.chargeableWeeksOverride = valor;
+
+    else if (tipo === "matricula_gratis") effect.waiveEnrollment = true;
+
+    else if (tipo === "materiales_gratis") effect.waiveMaterials = true;
+
+    return effect;
+
+}
+
+/*
+    Resuelve prioridad/combinabilidad DENTRO de un solo grupo de efectos
+    ya construidos (ver comentario de selectPromotionEffects más abajo
+    sobre por qué esto corre por separado para bonos vs. promociones con
+    precio).
+*/
+
+function selectByPriority(effects) {
+
+    if (effects.length === 0) return [];
+
+    const withPriority = effects
+
+        .map(effect => ({
+
+            effect,
+
+            priority: (effect.priority !== "" && effect.priority !== null && effect.priority !== undefined)
+                ? Number(effect.priority)
+                : Number.MAX_SAFE_INTEGER
+
+        }))
+
+        .sort((a, b) => a.priority - b.priority);
+
+    const selected = [withPriority[0]];
+
+    if (normalize(withPriority[0].effect.combinable) === "si") {
+
+        for (let i = 1; i < withPriority.length; i++) {
+
+            if (normalize(withPriority[i].effect.combinable) !== "si") break;
+
+            selected.push(withPriority[i]);
+
+        }
+
+    }
+
+    return selected.map(({ effect }) => effect);
+
+}
+
+/*
+    Los bonos informativos (SEMANAS_GRATIS) y las promociones que sí
+    afectan precio compiten por PRIORIDAD/COMBINABLE cada uno en su
+    propio grupo, nunca entre sí — de lo contrario un bono podría
+    "bloquear" un descuento real (o viceversa) solo por coincidir en
+    prioridad y no ser combinable, algo que no tiene sentido de negocio:
+    son dos cosas independientes (ver database.js#buildPromotionEffect).
+*/
+
+async function evaluatePromotionsForCourse({ college, city, program, subtype, type, schedule, nationality, weeks }) {
+
+    const { promociones } = await loadAllSheetsData();
+
+    const candidates = promociones.filter(row => {
+
+        if (normalize(row["ACTIVA"]) !== "si") return false;
+
+        return criterionMatches(row["COLEGIO"], college) &&
+            criterionMatches(row["CAMPUS"], city) &&
+            criterionMatches(row["PROGRAMA"], program) &&
+            criterionMatches(row["SUBPROGRAMA"], subtype) &&
+            criterionMatches(row["MODALIDAD"], type) &&
+            criterionMatches(row["HORARIO"], schedule) &&
+            criterionMatches(row["NACIONALIDAD"], nationality) &&
+            criterionMatches(row["CIUDAD"], city) &&
+            weeksInRange(row, weeks);
+
+    });
+
+    const effects = candidates.map(row => ({
+
+        ...buildPromotionEffect(row),
+
+        priority: row["PRIORIDAD"],
+
+        combinable: row["COMBINABLE"]
+
+    }));
+
+    const priceAffecting = selectByPriority(effects.filter(effect => effect.isPriceAffecting));
+
+    const bonuses = selectByPriority(effects.filter(effect => !effect.isPriceAffecting));
+
+    return [...priceAffecting, ...bonuses];
+
+}
+
+/*
+    Tarifa semanal según Horario ("Valor semana Mañana/Tarde/Noche"),
+    con "Valor semana" como respaldo si el curso no tiene tarifa propia
+    para ese horario (o si no se seleccionó horario). NO es una
+    promoción — es el precio de catálogo para ese horario.
+*/
+
+function resolveWeeklyRate(row, schedule) {
+
+    const scheduleRate = schedule ? (Number(row[`Valor semana ${schedule}`]) || 0) : 0;
+
+    return scheduleRate > 0 ? scheduleRate : (Number(row["Valor semana"]) || 0);
+
+}
+
+async function fetchCourseDetails({ college, city, type, subtype, program, weeks, schedule, nationality }) {
 
     const { cursos } = await loadAllSheetsData();
 
@@ -519,6 +744,8 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
             discountSource: null,
 
+            bonusNotes: [],
+
             firstPaymentDeposit: 0
 
         };
@@ -527,27 +754,103 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
     const officialWeeks = type === "ELICOS" ? (Number(weeks) || 0) : (Number(row["Duración"]) || 0);
 
-    const weeklyRate = Number(row["Valor semana"]) || 0;
+    const catalogWeeklyRate = resolveWeeklyRate(row, schedule);
 
-    const discountInfo = await resolveCourseDiscount(row, college, program);
+    const catalogEnrollmentFee = Number(row["Matrícula"]) || 0;
+
+    const catalogMaterialsFee = Number(row["Materiales"]) || 0;
+
+    const catalogPrice = catalogWeeklyRate * officialWeeks;
+
+    const catalogTotal = catalogPrice + catalogEnrollmentFee + catalogMaterialsFee;
+
+    const promotions = await evaluatePromotionsForCourse({
+
+        college, city, program, subtype, type, schedule, nationality, weeks: officialWeeks
+
+    });
+
+    // Solo las promociones "isPriceAffecting" entran al cálculo de precio
+    // — SEMANAS_GRATIS queda afuera a propósito (ver buildPromotionEffect).
+    const priceAffectingPromotions = promotions.filter(effect => effect.isPriceAffecting);
+
+    const bonusPromotions = promotions.filter(effect => !effect.isPriceAffecting);
+
+    let weeklyRate = catalogWeeklyRate;
+
+    let chargeableWeeks = officialWeeks;
+
+    let enrollmentWaived = false;
+
+    let materialsWaived = false;
+
+    let percentOff = 0;
+
+    let fixedOff = 0;
+
+    priceAffectingPromotions.forEach(effect => {
+
+        if (effect.weeklyRateOverride != null) weeklyRate = effect.weeklyRateOverride;
+
+        if (effect.chargeableWeeksOverride != null) chargeableWeeks = effect.chargeableWeeksOverride;
+
+        if (effect.waiveEnrollment) enrollmentWaived = true;
+
+        if (effect.waiveMaterials) materialsWaived = true;
+
+        percentOff += effect.percentOff;
+
+        fixedOff += effect.fixedOff;
+
+    });
+
+    let programPrice = weeklyRate * chargeableWeeks;
+
+    programPrice = programPrice * (1 - Math.min(percentOff, 100) / 100);
+
+    programPrice = Math.max(0, programPrice - fixedOff);
+
+    const finalEnrollmentFee = enrollmentWaived ? 0 : catalogEnrollmentFee;
+
+    const finalMaterialsFee = materialsWaived ? 0 : catalogMaterialsFee;
+
+    const finalTotal = programPrice + finalEnrollmentFee + finalMaterialsFee;
+
+    // "Descuento" = beneficio real en dólares vs. el precio de catálogo
+    // (ya con la tarifa de Horario aplicada), sea cual sea el tipo de
+    // promoción — así "Total Programa" sigue siendo el precio de
+    // catálogo (sin promoción) y "Descuento" siempre es la diferencia,
+    // sin duplicar ni recalcular nada aparte (ver pricing.js#assembleTotals).
+    const discount = Math.max(0, catalogTotal - finalTotal);
+
+    const discountSource = priceAffectingPromotions.length > 0
+        ? priceAffectingPromotions.map(effect => effect.description).join(" + ")
+        : null;
+
+    // Bonos informativos (SEMANAS_GRATIS) — nunca afectan precio/descuento,
+    // solo se muestran como nota aparte en el PDF (ver pdf.js#buildPromotionBlock).
+    const bonusNotes = bonusPromotions.map(effect => effect.description);
 
     return {
 
         found: true,
 
-        price: weeklyRate * officialWeeks,
+        price: catalogPrice,
 
-        enrollmentFee: Number(row["Matrícula"]) || 0,
+        enrollmentFee: catalogEnrollmentFee,
 
-        materialsFee: Number(row["Materiales"]) || 0,
+        materialsFee: catalogMaterialsFee,
 
         officialWeeks,
 
-        discount: discountInfo.amount,
+        discount,
 
-        discountSource: discountInfo.description,
+        discountSource,
+
+        bonusNotes,
 
         // Primer depósito Onshore (Cursos!L, columna "Primer deposito") —
+        // NUNCA cambia por promociones (decisión confirmada del cliente),
         // ver pricing.js#calculateFirstPayment.
         firstPaymentDeposit: Number(row["Primer deposito"]) || 0
 

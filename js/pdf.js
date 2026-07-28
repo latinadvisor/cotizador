@@ -295,6 +295,95 @@ function amountRow(label, amount, currency, usdRate, options = {}) {
 
 }
 
+/*==========================================================
+ BLOQUE "🎉 PROMOCIÓN APLICADA"
+ ----------------------------------------------------------
+ Uno por curso con descuento > 0 y/o bonusNotes (ver
+ database.js#fetchCourseDetails / evaluatePromotionsForCourse).
+ Dos partes independientes:
+
+   - Descuento real (course.discount > 0): precio original
+     (course.price + fees), beneficio y precio final
+     (course.subtotal, única fuente de verdad — ver
+     pricing.js#applyInstitutionEnrollmentFeeRule).
+   - Bonos informativos (course.bonusNotes, ej. SEMANAS_GRATIS):
+     solo texto, sin cifras — NUNCA afectan precio/subtotal
+     (decisión confirmada del cliente, caso "Aussie English
+     Bonus Weeks").
+
+ Un curso puede tener ambas, solo una, o ninguna (en ese caso no
+ se llama a esta función).
+==========================================================*/
+
+function buildPromotionBlock(course, label, currency) {
+
+    const hasDiscount = course.discount > 0;
+
+    const bonusNotes = course.bonusNotes || [];
+
+    const stack = [
+        // Sin el emoji 🎉 pedido originalmente: la fuente del PDF (Roboto,
+        // vía pdfmake) no trae ese glifo y lo mostraba como un cuadro vacío
+        // — se verificó generando un PDF real. Se avisó al cliente.
+        { text: `Promoción aplicada — ${label}`, bold: true, color: PDF_COLORS.greenDark, fontSize: 10, margin: [0, 4, 0, 2] }
+    ];
+
+    if (hasDiscount) {
+
+        const originalPrice = course.price + course.enrollmentFee + course.materialsFee;
+
+        stack.push({ text: course.discountSource || "Promoción", italics: true, fontSize: 9, color: PDF_COLORS.text, margin: [0, 0, 0, 4] });
+
+        stack.push({
+
+            columns: [
+
+                { text: `Precio original: ${formatCurrency(originalPrice, currency)}`, fontSize: 9, color: PDF_COLORS.subtitle },
+
+                { text: `Beneficio: - ${formatCurrency(course.discount, currency)}`, fontSize: 9, color: PDF_COLORS.greenDark },
+
+                { text: `Precio final: ${formatCurrency(course.subtotal, currency)}`, fontSize: 9, bold: true, color: PDF_COLORS.text }
+
+            ],
+
+            margin: [0, 0, 0, bonusNotes.length > 0 ? 4 : 0]
+
+        });
+
+    }
+
+    bonusNotes.forEach(note => {
+
+        stack.push({ text: `+ ${note}`, italics: true, fontSize: 9, color: PDF_COLORS.text, margin: [0, 0, 0, 2] });
+
+    });
+
+    return {
+
+        table: {
+
+            widths: ["*"],
+
+            body: [[{
+
+                fillColor: "#f4f9ec",
+
+                border: [false, false, false, false],
+
+                stack
+
+            }]]
+
+        },
+
+        layout: "noBorders",
+
+        margin: [0, 4, 0, 8]
+
+    };
+
+}
+
 function resolveAsesoraName(advisor) {
 
     return (advisor && (advisor.opportunityOwner || advisor.name)) || DEFAULT_ASESORA_NAME;
@@ -573,6 +662,8 @@ function buildCostTableSection(quote, currency, usdRate) {
 
     const courseRows = [];
 
+    const promotionBlocks = [];
+
     (quote.courses || []).forEach((course, index) => {
 
         // Formato: "[Programa] ([Institución]) - [Ciudad]" — cada curso
@@ -606,6 +697,12 @@ function buildCostTableSection(quote, currency, usdRate) {
         courseRows.push(amountRow(enrollmentFeeLabel, course.enrollmentFee, currency, usdRate));
 
         courseRows.push(amountRow("Materiales", course.materialsFee, currency, usdRate));
+
+        if (course.discount > 0 || (course.bonusNotes && course.bonusNotes.length > 0)) {
+
+            promotionBlocks.push(buildPromotionBlock(course, label, currency));
+
+        }
 
     });
 
@@ -656,6 +753,8 @@ function buildCostTableSection(quote, currency, usdRate) {
             layout: "lightHorizontalLines"
 
         },
+
+        ...promotionBlocks,
 
         { text: "OTROS CARGOS", style: "sectionTitle", margin: [0, 10, 0, 6] },
 
@@ -730,7 +829,14 @@ function buildResumenFinancieroSection(quote, currency, usdRate) {
 
     // Última fila del bloque, después del TOTAL general — resaltada en
     // verde claro (pedido explícito del cliente), sin salirse de la tabla.
-    rows.push(amountRow("Primer Pago", totals.primerPago, currency, usdRate, { bold: true, fillColor: "#eaf5d6" }));
+    // Offshore con menos de 25 semanas no tiene Primer Pago — ver
+    // pricing.js#calculateFirstPayment (`null`, no un número) — en ese
+    // caso la fila se omite por completo, solo queda TOTAL.
+    if (totals.primerPago !== null) {
+
+        rows.push(amountRow("Primer Pago", totals.primerPago, currency, usdRate, { bold: true, fillColor: "#eaf5d6" }));
+
+    }
 
     /*
         "Total de Costos Extras": informativo (nunca se suma al TOTAL,
@@ -993,13 +1099,19 @@ function buildComparativoTableRows(quote) {
 
     // Última fila del bloque (después de TOTAL) — fondo verde claro
     // sutil, pedido explícito del cliente, sin salirse de la tabla.
-    const firstPaymentRow = [
+    // Offshore con menos de 25 semanas no tiene Primer Pago (`null`, ver
+    // pricing.js#calculateFirstPayment) — si NINGUNA opción lo tiene, la
+    // fila se omite por completo (solo queda TOTAL); si solo algunas la
+    // tienen, las demás columnas muestran "-".
+    const hasFirstPayment = options.some(option => option.totals.primerPago !== null);
+
+    const firstPaymentRow = hasFirstPayment ? [
 
         { text: "Primer Pago", fontSize: 10, bold: true, color: PDF_COLORS.greenDark, fillColor: "#eaf5d6" },
 
         ...options.map(option => ({
 
-            text: formatCurrency(option.totals.primerPago, currency),
+            text: option.totals.primerPago !== null ? formatCurrency(option.totals.primerPago, currency) : "-",
 
             fontSize: 10,
 
@@ -1013,7 +1125,7 @@ function buildComparativoTableRows(quote) {
 
         }))
 
-    ];
+    ] : null;
 
     return { headerRow, bodyRows, totalRow, firstPaymentRow, columnWidths: ["*", ...options.map(() => 90)] };
 
@@ -1080,7 +1192,7 @@ function buildComparativoOverlayDocDefinition(quote, student) {
 
             {
 
-                table: { headerRows: 1, widths: columnWidths, body: [headerRow, ...bodyRows, totalRow, firstPaymentRow] },
+                table: { headerRows: 1, widths: columnWidths, body: [headerRow, ...bodyRows, totalRow, ...(firstPaymentRow ? [firstPaymentRow] : [])] },
 
                 layout: "lightHorizontalLines"
 

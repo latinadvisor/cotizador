@@ -169,6 +169,8 @@ function createCourseCard(id, optionId) {
 
             })}
 
+            ${createScheduleField(id)}
+
             ${createWeeksField(id)}
 
         </div>
@@ -256,6 +258,49 @@ function getCurrentApplicationType() {
     const select = document.getElementById("application_type");
 
     return select ? select.value : "";
+
+}
+
+
+
+/*==========================================================
+ CAMPO "HORARIO DE ESTUDIO" (Mañana/Tarde/Noche)
+ ----------------------------------------------------------
+ Obligatorio para TODOS los cursos, sin importar el Tipo de
+ Aplicación (a diferencia de "¿Es estudiante de la institución?",
+ que solo aplica en Onshore). El precio base del curso puede
+ variar según este valor — ver database.js#resolveWeeklyRate —
+ y también es uno de los criterios de coincidencia del Motor de
+ Promociones (database.js#evaluatePromotionsForCourse).
+==========================================================*/
+
+function createScheduleField(id) {
+
+    return `
+
+    <div class="form-group" id="scheduleField_${id}">
+
+        <label for="schedule_${id}">
+
+            Horario de estudio
+
+        </label>
+
+        <select id="schedule_${id}">
+
+            <option value="">Seleccionar</option>
+
+            <option value="Mañana">Mañana</option>
+
+            <option value="Tarde">Tarde</option>
+
+            <option value="Noche">Noche</option>
+
+        </select>
+
+    </div>
+
+    `;
 
 }
 
@@ -734,6 +779,10 @@ function getAllCoursesData(optionId) {
             program: document.getElementById(`program_${id}`).value,
 
             weeks: document.getElementById(`weeks_${id}`).value,
+
+            // Obligatorio en todos los tipos de aplicación — ver
+            // database.js#resolveWeeklyRate / evaluatePromotionsForCourse.
+            schedule: document.getElementById(`schedule_${id}`).value,
 
             // Solo tiene efecto en Onshore — ver
             // pricing.js#applyInstitutionEnrollmentFeeRule.

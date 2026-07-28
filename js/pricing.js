@@ -141,7 +141,7 @@ async function calculateQuotation() {
 
 async function calculateOptionQuote(courseOption, shared) {
 
-    const courseLines = await calculateAllCourseLines(courseOption.courses);
+    const courseLines = await calculateAllCourseLines(courseOption.courses, shared.student.nationality);
 
     applyInstitutionEnrollmentFeeRule(courseLines, shared.student.application_type);
 
@@ -311,7 +311,7 @@ function collectQuotationInput() {
  la hoja "Cursos" (ver database.js#fetchCourseDetails).
 ==========================================================*/
 
-async function calculateCourseLine(course) {
+async function calculateCourseLine(course, nationality) {
 
     const requestedWeeks = Number(course.weeks) || 0;
 
@@ -327,7 +327,11 @@ async function calculateCourseLine(course) {
 
         program: course.program,
 
-        weeks: course.weeks
+        weeks: course.weeks,
+
+        schedule: course.schedule,
+
+        nationality
 
     });
 
@@ -347,6 +351,8 @@ async function calculateCourseLine(course) {
 
         program: course.program,
 
+        schedule: course.schedule,
+
         requestedWeeks,
 
         officialWeeks: details.officialWeeks,
@@ -363,6 +369,10 @@ async function calculateCourseLine(course) {
 
         discountSource: details.discountSource,
 
+        // Bonos informativos (ej. SEMANAS_GRATIS) — nunca afectan
+        // subtotal/total, ver database.js#fetchCourseDetails.
+        bonusNotes: details.bonusNotes || [],
+
         subtotal: grossSubtotal - details.discount,
 
         // Primer depósito Onshore (Cursos!L) — ver
@@ -377,9 +387,9 @@ async function calculateCourseLine(course) {
 
 }
 
-async function calculateAllCourseLines(courses) {
+async function calculateAllCourseLines(courses, nationality) {
 
-    return Promise.all(courses.map(calculateCourseLine));
+    return Promise.all(courses.map(course => calculateCourseLine(course, nationality)));
 
 }
 
@@ -732,9 +742,9 @@ async function calculateServicesLines(selectedServices) {
  9. PROMOCIONES APLICADAS
  ----------------------------------------------------------
  El descuento por curso ya se resolvió en database.js
- (fetchCourseDetails -> resolveCourseDiscount). Aquí solo se
- recopila la lista de promociones efectivamente aplicadas,
- para mostrarlas en el resumen.
+ (fetchCourseDetails -> evaluatePromotionsForCourse, el Motor de
+ Promociones). Aquí solo se recopila la lista de promociones
+ efectivamente aplicadas, para mostrarlas en el resumen.
 ==========================================================*/
 
 function collectPromotionsApplied(courseLines) {
@@ -793,10 +803,14 @@ function sumBySubtotal(lines) {
  comparativo/resumen en pantalla y el PDF (ninguno de los dos
  recalcula esto por su cuenta).
 
- Offshore: Programa+Matrícula+Materiales ("subtotalCursos", el
- mismo que ya se muestra como "Total Programa") — 100% si el
- total de semanas de la opción es menor a 25, 50% si es 25 o
- más — más Visa y Seguro médico.
+ Offshore: si el total de semanas de la opción es MENOR a 25,
+ no existe "Primer Pago" en absoluto (pedido explícito del
+ cliente: en ese caso solo se muestra TOTAL, ni en pantalla ni
+ en PDF) — se devuelve `null`, no un número, para que
+ summary.js/pdf.js puedan distinguir "no aplica" de "$0". Si son
+ 25 semanas o más: 50% de Programa+Matrícula+Materiales
+ ("subtotalCursos", el mismo que ya se muestra como "Total
+ Programa") más Visa y Seguro médico.
 
  Onshore: suma del "Primer depósito" (Cursos!L) de cada curso de
  la opción, más Visa y Seguro médico. Nunca un único depósito
@@ -821,9 +835,9 @@ function calculateFirstPayment({ applicationType, totalWeeks, courseLines, subto
 
     }
 
-    const programPortion = totalWeeks >= 25 ? subtotalCursos * 0.5 : subtotalCursos;
+    if (totalWeeks < 25) return null;
 
-    return programPortion + totalVisaCost + insurance.cost;
+    return subtotalCursos * 0.5 + totalVisaCost + insurance.cost;
 
 }
 
@@ -902,6 +916,8 @@ function collectWarnings({ courses, courseLines, insurance, visa, student }) {
         if (!course.subtype) missingFields.push("Subtipo");
 
         if (!course.program) missingFields.push("Programa");
+
+        if (!course.schedule) missingFields.push("Horario de estudio");
 
         if (course.type === "ELICOS" && (!course.weeks || Number(course.weeks) <= 0)) {
 

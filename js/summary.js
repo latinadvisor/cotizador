@@ -393,8 +393,25 @@ function renderComparisonTable(quote) {
 
     rows.push(buildComparisonRow("Total", options, option => formatCurrency(option.totals.total, currency), "comparison-row-total"));
 
-    // Última fila del bloque, resaltada — ver .comparison-row-first-payment en css/style.css.
-    rows.push(buildComparisonRow("Primer Pago", options, option => formatCurrency(option.totals.primerPago, currency), "comparison-row-first-payment"));
+    // Offshore con menos de 25 semanas no tiene Primer Pago (pedido
+    // explícito del cliente: solo se muestra TOTAL en ese caso) — ver
+    // pricing.js#calculateFirstPayment, que devuelve `null` para
+    // distinguir "no aplica" de "$0". La fila completa se omite si
+    // NINGUNA opción tiene Primer Pago; si solo algunas lo tienen, las
+    // demás columnas muestran "-".
+    const hasFirstPayment = options.some(option => option.totals.primerPago !== null);
+
+    if (hasFirstPayment) {
+
+        // Última fila del bloque, resaltada — ver .comparison-row-first-payment en css/style.css.
+        rows.push(buildComparisonRow(
+            "Primer Pago",
+            options,
+            option => option.totals.primerPago !== null ? formatCurrency(option.totals.primerPago, currency) : "-",
+            "comparison-row-first-payment"
+        ));
+
+    }
 
     const extraCostsNote = hasExtraCosts
 
