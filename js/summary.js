@@ -545,6 +545,23 @@ function describeOptionCities(option) {
 
 }
 
+/*
+    Mismo criterio que describeOptionCities — usado en el bloque
+    "Detalles" del PDF (ver pdf.js#buildProgramInfoBlock), junto a
+    Fecha/Ciudad/Nombre/Correo, en vez de repetirse en la línea de
+    cada curso del desglose (pedido explícito del cliente).
+*/
+
+function describeOptionSchedules(option) {
+
+    if (!option.courses || option.courses.length === 0) return "-";
+
+    const schedules = [...new Set(option.courses.map(course => course.schedule).filter(Boolean))];
+
+    return schedules.length > 0 ? schedules.join(" / ") : "-";
+
+}
+
 function insuranceRowLabel(options) {
 
     const named = options.find(option => option.insurance.name);

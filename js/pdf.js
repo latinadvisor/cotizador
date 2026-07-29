@@ -625,6 +625,8 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
 
             infoLine("Ciudad", describeOptionCities({ courses: quote.courses })),
 
+            infoLine("Horario", describeOptionSchedules({ courses: quote.courses })),
+
             infoLine("Nombre del estudiante", student.name),
 
             infoLine("Correo", student.email)
@@ -689,12 +691,7 @@ function buildCostTableSection(quote, moneyCtx) {
 
         const programLabelWithCity = course.city ? `${programLabel} - ${course.city}` : programLabel;
 
-        // Horario seleccionado por la asesora (Mañana/Tarde/Noche/No
-        // aplica) — pedido explícito del cliente, junto a la info del
-        // curso (ver courses.js#createScheduleField).
-        const programLabelWithSchedule = course.schedule ? `${programLabelWithCity} — Horario: ${course.schedule}` : programLabelWithCity;
-
-        const label = quote.courses.length > 1 ? `Curso ${index + 1} — ${programLabelWithSchedule}` : `Curso — ${programLabelWithSchedule}`;
+        const label = quote.courses.length > 1 ? `Curso ${index + 1} — ${programLabelWithCity}` : `Curso — ${programLabelWithCity}`;
 
         courseRows.push(amountRow(label, course.price, moneyCtx));
 

@@ -31,6 +31,12 @@ UTILIDADES COMPARTIDAS
 weeksToMonthsLabel() se usa tanto en el
 resumen en pantalla (summary.js) como en el
 PDF (pdf.js) — vive acá para no duplicarla.
+
+Convención: 1 mes = 4 semanas (pedido explícito
+del cliente, para que el paréntesis muestre la
+semana sobrante en vez de solo redondear al mes
+más cercano — ej. 25 semanas = "6 meses y 1
+semana", no solo "6 meses").
 ==========================================*/
 
 function weeksToMonthsLabel(weeks) {
@@ -39,9 +45,27 @@ function weeksToMonthsLabel(weeks) {
 
     if (totalWeeks <= 0) return "-";
 
-    const months = Math.round(totalWeeks / 4.345);
+    const months = Math.floor(totalWeeks / 4);
 
-    return `${totalWeeks} semanas (${months} ${months === 1 ? "mes" : "meses"})`;
+    const remainderWeeks = totalWeeks % 4;
+
+    let parenthetical;
+
+    if (months === 0) {
+
+        parenthetical = `${remainderWeeks} ${remainderWeeks === 1 ? "semana" : "semanas"}`;
+
+    } else if (remainderWeeks === 0) {
+
+        parenthetical = `${months} ${months === 1 ? "mes" : "meses"}`;
+
+    } else {
+
+        parenthetical = `${months} ${months === 1 ? "mes" : "meses"} y ${remainderWeeks} ${remainderWeeks === 1 ? "semana" : "semanas"}`;
+
+    }
+
+    return `${totalWeeks} semanas (${parenthetical})`;
 
 }
 
