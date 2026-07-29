@@ -729,7 +729,21 @@ function applyContactApplicationTypeToForm(rawApplicationType) {
 
     const matched = Array.from(select.options).find(option => normalize(option.value) === target);
 
-    if (matched) select.value = matched.value;
+    if (!matched) return;
+
+    select.value = matched.value;
+
+    /*
+        Asignar select.value NO dispara el evento "change" del navegador
+        (a diferencia de cuando la asesora lo cambia a mano) — por eso,
+        sin esta llamada, "¿Es estudiante de la institución?" (courses.js)
+        quedaba con la visibilidad equivocada tras cargar un lead real de
+        GHL, hasta que la asesora tocaba el select manualmente. Mismo
+        refresco que ya dispara el listener de "change" en
+        wireStudentCardEvents() más abajo.
+    */
+
+    if (typeof refreshExistingStudentFieldsVisibility === "function") refreshExistingStudentFieldsVisibility();
 
 }
 
