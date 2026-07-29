@@ -151,11 +151,24 @@ const TEMPLATE_LAYOUT = {
         Ver buildGreenBoxValue(): la tabla que dibuja este valor usa
         padding explícito en 0, así que "y" es directamente el borde
         superior del texto, sin relleno oculto que compense.
+
+        Recalibrado el 29/7/2026 tras el reemplazo de
+        assets/img/pagina-blanca-cotizacion.pdf (cuadros verdes
+        movidos en la plantilla nueva) — medido renderizando la
+        plantilla a PNG a escala 4 y detectando los píxeles verdes
+        con sharp (nunca a ojo, ver .docs o historial de esta
+        sesión para el script exacto):
+
+          Estudio Por: y_top=179.00, alto=21.75 -> y = 179.00 + (21.75-12.65)/2 = 183.55
+          Asesora:     y_top=229.50, alto=21.25 -> y = 229.50 + (21.25-12.65)/2 = 233.80
+
+        (x sigue en 329 — el ancho/posición horizontal del cuadro no
+        cambió, solo la vertical.)
     */
 
-    estudioPorText: { x: 329, y: 172 },
+    estudioPorText: { x: 329, y: 184 },
 
-    asesoraText: { x: 329, y: 222 },
+    asesoraText: { x: 329, y: 234 },
 
     /*
         La etiqueta "Detalles:" impresa en la propia plantilla tiene su
