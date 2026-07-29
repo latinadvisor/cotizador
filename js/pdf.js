@@ -259,122 +259,142 @@ const EXTRA_PAGE_LAYOUT = {
  formatCurrency() vive en summary.js (se reutiliza tal cual).
 ==========================================================*/
 
-function formatMoneyCell(amount, currency, { negative = false, alignment = "right" } = {}) {
+/*
+    Selector de moneda del PDF (ver summary.js#getSelectedCurrencyPair) —
+    la asesora elige el par ANTES de generar; acá se resuelve UNA sola vez
+    por cotización (no por opción, quote.currency es el mismo para todas)
+    y se pasa como `moneyCtx` a cada función que arma filas de dinero.
+    `quote.currency` sigue siendo la única moneda en la que pricing.js
+    calculó todo — primaryRate/secondaryRate son solo de PRESENTACIÓN
+    (fx.js#fetchExchangeRate ya documenta esto), nunca tocan los montos
+    reales de la cotización.
+*/
 
-    const value = Math.abs(Number(amount) || 0);
+async function buildMoneyContext(baseCurrency, currencyPair) {
 
-    const text = (negative ? "- " : "") + formatCurrency(value, currency);
+    const primaryCurrency = (currencyPair && currencyPair.primary) || baseCurrency || "AUD";
+
+    const secondaryCurrency = (currencyPair && currencyPair.secondary) || "USD";
+
+    const [primaryRate, secondaryRate] = await Promise.all([
+
+        fetchExchangeRate(baseCurrency, primaryCurrency),
+
+        fetchExchangeRate(baseCurrency, secondaryCurrency)
+
+    ]);
+
+    return { primaryCurrency, primaryRate, secondaryCurrency, secondaryRate };
+
+}
+
+/*
+    Generalizado para cualquier par de monedas (ver
+    summary.js#getSelectedCurrencyPair) — antes solo existía para USD como
+    columna secundaria fija. `rate` es la tasa desde quote.currency (la
+    moneda real de cálculo) hasta `currencyCode`; si son la misma moneda,
+    fx.js#fetchExchangeRate ya devuelve 1 (no-op). `rate == null` = la API
+    de tasas falló o no soporta ese par — se muestra "—" en vez de romper.
+*/
+
+function formatMoneyCell(amount, currencyCode, rate, { negative = false, alignment = "right" } = {}) {
+
+    if (rate == null) return { text: "—", alignment, fontSize: 9, color: PDF_COLORS.subtitle };
+
+    const value = Math.abs(Number(amount) || 0) * rate;
+
+    const text = (negative ? "- " : "") + formatCurrency(value, currencyCode);
 
     return { text, alignment, fontSize: 9 };
 
 }
 
-function formatUsdCell(amount, usdRate, { negative = false, alignment = "right" } = {}) {
+function amountRow(label, amount, moneyCtx, options = {}) {
 
-    if (!usdRate) return { text: "—", alignment, fontSize: 9, color: PDF_COLORS.subtitle };
+    const primaryCell = formatMoneyCell(amount, moneyCtx.primaryCurrency, moneyCtx.primaryRate, options);
 
-    const value = Math.abs(Number(amount) || 0) * usdRate;
-
-    const text = (negative ? "- " : "") + formatCurrency(value, "USD");
-
-    return { text, alignment, fontSize: 9, color: PDF_COLORS.subtitle };
-
-}
-
-function amountRow(label, amount, currency, usdRate, options = {}) {
+    const secondaryCell = formatMoneyCell(amount, moneyCtx.secondaryCurrency, moneyCtx.secondaryRate, options);
 
     return [
 
         { text: label, fontSize: 9, bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.text, fillColor: options.fillColor },
 
-        { ...formatMoneyCell(amount, currency, options), bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.text, fontSize: options.bold ? 12 : 9, fillColor: options.fillColor },
+        { ...primaryCell, bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.text, fontSize: options.bold ? 12 : 9, fillColor: options.fillColor },
 
-        { ...formatUsdCell(amount, usdRate, options), bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.subtitle, fontSize: options.bold ? 10 : 9, fillColor: options.fillColor }
+        { ...secondaryCell, bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.subtitle, fontSize: options.bold ? 10 : 9, fillColor: options.fillColor }
 
     ];
 
 }
 
 /*==========================================================
- BLOQUE "🎉 PROMOCIÓN APLICADA"
+ BLOQUE "PROMOCIÓN APLICADA"
  ----------------------------------------------------------
  Uno por curso con descuento > 0 y/o bonusNotes (ver
  database.js#fetchCourseDetails / evaluatePromotionsForCourse).
  Dos partes independientes:
 
-   - Descuento real (course.discount > 0): precio original
-     (course.price + fees), beneficio y precio final
-     (course.subtotal, única fuente de verdad — ver
-     pricing.js#applyInstitutionEnrollmentFeeRule).
+   - Descuento real (course.discount > 0): descripción de la
+     promoción + Beneficio + Precio final (course.subtotal, única
+     fuente de verdad — ver pricing.js#applyInstitutionEnrollmentFeeRule).
+     "Precio original" se quitó (pedido explícito del cliente,
+     rediseño visual) — el desglose de arriba ya lo muestra como
+     "Total Programa".
    - Bonos informativos (course.bonusNotes, ej. SEMANAS_GRATIS):
      solo texto, sin cifras — NUNCA afectan precio/subtotal
      (decisión confirmada del cliente, caso "Aussie English
      Bonus Weeks").
 
- Un curso puede tener ambas, solo una, o ninguna (en ese caso no
- se llama a esta función).
+ Reutiliza amountRow() (misma tabla ["*", 90, 90] que el resto del
+ desglose) en vez de un layout de columnas libre, para que
+ Beneficio/Precio final queden EXACTAMENTE alineados con la
+ columna de moneda principal — y para que el par de moneda
+ elegido (ver summary.js#getSelectedCurrencyPair) aplique acá
+ automáticamente, sin lógica aparte.
+
+ Un curso puede tener ambas partes, solo una, o ninguna (en ese
+ caso no se llama a esta función).
 ==========================================================*/
 
-function buildPromotionBlock(course, label, currency) {
+function buildPromotionBlock(course, label, moneyCtx) {
 
     const hasDiscount = course.discount > 0;
 
     const bonusNotes = course.bonusNotes || [];
 
-    const stack = [
-        // Sin el emoji 🎉 pedido originalmente: la fuente del PDF (Roboto,
-        // vía pdfmake) no trae ese glifo y lo mostraba como un cuadro vacío
-        // — se verificó generando un PDF real. Se avisó al cliente.
-        { text: `Promoción aplicada — ${label}`, bold: true, color: PDF_COLORS.greenDark, fontSize: 10, margin: [0, 4, 0, 2] }
+    const fill = "#f4f9ec";
+
+    const fullWidthRow = (text, options = {}) => [
+        { text, fontSize: 9, color: PDF_COLORS.text, fillColor: fill, colSpan: 3, ...options },
+        {},
+        {}
+    ];
+
+    const rows = [
+
+        fullWidthRow(`Promoción aplicada — ${label}`, { bold: true, color: PDF_COLORS.greenDark, fontSize: 10, margin: [0, 4, 0, 2] })
+
     ];
 
     if (hasDiscount) {
 
-        const originalPrice = course.price + course.enrollmentFee + course.materialsFee;
+        rows.push(fullWidthRow(course.discountSource || "Promoción", { italics: true, margin: [0, 0, 0, 4] }));
 
-        stack.push({ text: course.discountSource || "Promoción", italics: true, fontSize: 9, color: PDF_COLORS.text, margin: [0, 0, 0, 4] });
+        rows.push(amountRow("Beneficio", course.discount, moneyCtx, { negative: true, fillColor: fill }));
 
-        stack.push({
-
-            columns: [
-
-                { text: `Precio original: ${formatCurrency(originalPrice, currency)}`, fontSize: 9, color: PDF_COLORS.subtitle },
-
-                { text: `Beneficio: - ${formatCurrency(course.discount, currency)}`, fontSize: 9, color: PDF_COLORS.greenDark },
-
-                { text: `Precio final: ${formatCurrency(course.subtotal, currency)}`, fontSize: 9, bold: true, color: PDF_COLORS.text }
-
-            ],
-
-            margin: [0, 0, 0, bonusNotes.length > 0 ? 4 : 0]
-
-        });
+        rows.push(amountRow("Precio final", course.subtotal, moneyCtx, { bold: true, fillColor: fill }));
 
     }
 
     bonusNotes.forEach(note => {
 
-        stack.push({ text: `+ ${note}`, italics: true, fontSize: 9, color: PDF_COLORS.text, margin: [0, 0, 0, 2] });
+        rows.push(fullWidthRow(`+ ${note}`, { italics: true, margin: [0, 0, 0, 2] }));
 
     });
 
     return {
 
-        table: {
-
-            widths: ["*"],
-
-            body: [[{
-
-                fillColor: "#f4f9ec",
-
-                border: [false, false, false, false],
-
-                stack
-
-            }]]
-
-        },
+        table: { widths: ["*", 90, 90], body: rows },
 
         layout: "noBorders",
 
@@ -460,13 +480,9 @@ function infoLine(label, value) {
  verdes: eso ya está en pagina-blanca-cotizacion.pdf).
 ==========================================================*/
 
-async function buildOverlayDocDefinition(quote, student, advisor, optionLabel) {
-
-    const currency = quote.currency || "AUD";
+function buildOverlayDocDefinition(quote, student, advisor, optionLabel, moneyCtx) {
 
     const primaryCourse = (quote.courses && quote.courses[0]) || null;
-
-    const usdRate = await fetchExchangeRate(currency, "USD");
 
     /*
         Mismo cálculo que la fila "Duración" de la tabla comparativa en
@@ -509,9 +525,9 @@ async function buildOverlayDocDefinition(quote, student, advisor, optionLabel) {
 
             buildProgramInfoBlock(primaryCourse, student, quote, optionLabel),
 
-            buildCostTableSection(quote, currency, usdRate),
+            buildCostTableSection(quote, moneyCtx),
 
-            buildResumenFinancieroSection(quote, currency, usdRate),
+            buildResumenFinancieroSection(quote, moneyCtx),
 
             buildObservationsSection(quote.warnings)
 
@@ -648,15 +664,15 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
  cliente), solo en el Resumen Financiero, justo antes del total.
 ==========================================================*/
 
-function buildCostTableSection(quote, currency, usdRate) {
+function buildCostTableSection(quote, moneyCtx) {
 
     const header = [
 
         { text: "Concepto", style: "tableHeader" },
 
-        { text: "AUD", style: "tableHeader", alignment: "right" },
+        { text: moneyCtx.primaryCurrency, style: "tableHeader", alignment: "right" },
 
-        { text: "USD", style: "tableHeader", alignment: "right" }
+        { text: moneyCtx.secondaryCurrency, style: "tableHeader", alignment: "right" }
 
     ];
 
@@ -673,9 +689,14 @@ function buildCostTableSection(quote, currency, usdRate) {
 
         const programLabelWithCity = course.city ? `${programLabel} - ${course.city}` : programLabel;
 
-        const label = quote.courses.length > 1 ? `Curso ${index + 1} — ${programLabelWithCity}` : `Curso — ${programLabelWithCity}`;
+        // Horario seleccionado por la asesora (Mañana/Tarde/Noche/No
+        // aplica) — pedido explícito del cliente, junto a la info del
+        // curso (ver courses.js#createScheduleField).
+        const programLabelWithSchedule = course.schedule ? `${programLabelWithCity} — Horario: ${course.schedule}` : programLabelWithCity;
 
-        courseRows.push(amountRow(label, course.price, currency, usdRate));
+        const label = quote.courses.length > 1 ? `Curso ${index + 1} — ${programLabelWithSchedule}` : `Curso — ${programLabelWithSchedule}`;
+
+        courseRows.push(amountRow(label, course.price, moneyCtx));
 
         /*
             La matrícula se cobra UNA sola vez por institución dentro de
@@ -694,13 +715,13 @@ function buildCostTableSection(quote, currency, usdRate) {
 
                 : "Matrícula";
 
-        courseRows.push(amountRow(enrollmentFeeLabel, course.enrollmentFee, currency, usdRate));
+        courseRows.push(amountRow(enrollmentFeeLabel, course.enrollmentFee, moneyCtx));
 
-        courseRows.push(amountRow("Materiales", course.materialsFee, currency, usdRate));
+        courseRows.push(amountRow("Materiales", course.materialsFee, moneyCtx));
 
         if (course.discount > 0 || (course.bonusNotes && course.bonusNotes.length > 0)) {
 
-            promotionBlocks.push(buildPromotionBlock(course, label, currency));
+            promotionBlocks.push(buildPromotionBlock(course, label, moneyCtx));
 
         }
 
@@ -714,31 +735,31 @@ function buildCostTableSection(quote, currency, usdRate) {
         TOTAL general (ver buildResumenFinancieroSection más abajo).
     */
 
-    courseRows.push(amountRow("Total Programa", quote.totals.subtotalCursos, currency, usdRate, { bold: true }));
+    courseRows.push(amountRow("Total Programa", quote.totals.subtotalCursos, moneyCtx, { bold: true }));
 
     const otherChargeRows = [];
 
     const insuranceLabel = quote.insurance.name ? `Seguro médico (${quote.insurance.name})` : "Seguro médico";
 
-    otherChargeRows.push(amountRow(insuranceLabel, quote.insurance.cost, currency, usdRate));
+    otherChargeRows.push(amountRow(insuranceLabel, quote.insurance.cost, moneyCtx));
 
-    otherChargeRows.push(amountRow("Visa", quote.visa.cost, currency, usdRate));
+    otherChargeRows.push(amountRow("Visa", quote.visa.cost, moneyCtx));
 
     if (quote.secondApplicationSurcharge.applies) {
 
-        otherChargeRows.push(amountRow("Recargo tercera aplicación visa", quote.secondApplicationSurcharge.totalAmount, currency, usdRate));
+        otherChargeRows.push(amountRow("Recargo tercera aplicación visa", quote.secondApplicationSurcharge.totalAmount, moneyCtx));
 
     }
 
     if (quote.offshoreExtras.applies) {
 
-        quote.offshoreExtras.items.forEach(item => otherChargeRows.push(amountRow(item.label, item.amount, currency, usdRate)));
+        quote.offshoreExtras.items.forEach(item => otherChargeRows.push(amountRow(item.label, item.amount, moneyCtx)));
 
     }
 
     quote.services.forEach(service => {
 
-        otherChargeRows.push(amountRow(`${service.label} (x${service.quantity})`, service.subtotal, currency, usdRate));
+        otherChargeRows.push(amountRow(`${service.label} (x${service.quantity})`, service.subtotal, moneyCtx));
 
     });
 
@@ -770,7 +791,7 @@ function buildCostTableSection(quote, currency, usdRate) {
 
     if (quote.extraCosts && quote.extraCosts.applies) {
 
-        const extraRows = quote.extraCosts.items.map(item => amountRow(item.label, item.amount, currency, usdRate));
+        const extraRows = quote.extraCosts.items.map(item => amountRow(item.label, item.amount, moneyCtx));
 
         content.push(
 
@@ -805,7 +826,7 @@ function buildCostTableSection(quote, currency, usdRate) {
  sin cambios, en pricing.js#assembleTotals.
 ==========================================================*/
 
-function buildResumenFinancieroSection(quote, currency, usdRate) {
+function buildResumenFinancieroSection(quote, moneyCtx) {
 
     const totals = quote.totals;
 
@@ -813,19 +834,19 @@ function buildResumenFinancieroSection(quote, currency, usdRate) {
 
     const rows = [
 
-        amountRow("Subtotal Curso(s)", totals.subtotalCursos, currency, usdRate),
+        amountRow("Subtotal Curso(s)", totals.subtotalCursos, moneyCtx),
 
-        amountRow("Otros Cargos", otrosCargosDisplay, currency, usdRate)
+        amountRow("Otros Cargos", otrosCargosDisplay, moneyCtx)
 
     ];
 
     if (totals.descuento > 0) {
 
-        rows.push(amountRow("Descuento", totals.descuento, currency, usdRate, { negative: true }));
+        rows.push(amountRow("Descuento", totals.descuento, moneyCtx, { negative: true }));
 
     }
 
-    rows.push(amountRow("TOTAL", totals.total, currency, usdRate, { bold: true }));
+    rows.push(amountRow("TOTAL", totals.total, moneyCtx, { bold: true }));
 
     // Última fila del bloque, después del TOTAL general — resaltada en
     // verde claro (pedido explícito del cliente), sin salirse de la tabla.
@@ -834,7 +855,7 @@ function buildResumenFinancieroSection(quote, currency, usdRate) {
     // caso la fila se omite por completo, solo queda TOTAL.
     if (totals.primerPago !== null) {
 
-        rows.push(amountRow("Primer Pago", totals.primerPago, currency, usdRate, { bold: true, fillColor: "#eaf5d6" }));
+        rows.push(amountRow("Primer Pago", totals.primerPago, moneyCtx, { bold: true, fillColor: "#eaf5d6" }));
 
     }
 
@@ -849,7 +870,7 @@ function buildResumenFinancieroSection(quote, currency, usdRate) {
 
     if (quote.extraCosts && quote.extraCosts.applies) {
 
-        rows.push(amountRow("Total de Costos Extras", quote.extraCosts.total, currency, usdRate, { bold: true, fillColor: "#e8e8e8" }));
+        rows.push(amountRow("Total de Costos Extras", quote.extraCosts.total, moneyCtx, { bold: true, fillColor: "#e8e8e8" }));
 
     }
 
@@ -895,7 +916,7 @@ function buildObservationsSection(warnings) {
  cliente).
 ==========================================================*/
 
-function collectNotes(quote) {
+function collectNotes(quote, moneyCtx) {
 
     const hasExtraCosts = !!(quote.extraCosts && quote.extraCosts.applies);
 
@@ -961,7 +982,9 @@ function collectNotes(quote) {
 
     } else if (hasSecondApplicationSurcharge) {
 
-        const surchargeAmountText = formatCurrency(secondApplicationSurcharge.perApplicantAmount, quote.currency);
+        const surchargeAmountText = moneyCtx.primaryRate == null
+            ? "—"
+            : formatCurrency(secondApplicationSurcharge.perApplicantAmount * moneyCtx.primaryRate, moneyCtx.primaryCurrency);
 
         notes.push(`El valor correspondiente al ítem "Adicionales" corresponde al cargo adicional obligatorio de ${surchargeAmountText} exigido por el Gobierno a partir de la tercera aplicación, aplicable a cada una de las visas que se soliciten.`);
 
@@ -971,7 +994,7 @@ function collectNotes(quote) {
 
 }
 
-function buildNotesSection(quote) {
+function buildNotesSection(quote, moneyCtx) {
 
     return [
 
@@ -979,7 +1002,7 @@ function buildNotesSection(quote) {
 
         {
 
-            ul: collectNotes(quote),
+            ul: collectNotes(quote, moneyCtx),
 
             fontSize: 8
 
@@ -1003,11 +1026,18 @@ function buildNotesSection(quote) {
  pidió el cliente para el comparativo.
 ==========================================================*/
 
-function buildComparativoTableRows(quote) {
+function buildComparativoTableRows(quote, moneyCtx) {
 
     const options = quote.options || [];
 
-    const currency = quote.currency || "AUD";
+    // Esta tabla es por OPCIÓN (una columna por opción de colegio), no por
+    // moneda — a diferencia de amountRow (desglose/resumen), acá solo cabe
+    // UNA moneda por celda. Se usa siempre la PRIMARIA elegida por la
+    // asesora (ver summary.js#getSelectedCurrencyPair), convertida desde
+    // quote.currency con la tasa del día (fx.js#fetchExchangeRate).
+    const fmtPrimary = amount => moneyCtx.primaryRate == null
+        ? "—"
+        : formatCurrency((Number(amount) || 0) * moneyCtx.primaryRate, moneyCtx.primaryCurrency);
 
     const hasDiscount = options.some(option => option.totals.descuento > 0);
 
@@ -1033,13 +1063,13 @@ function buildComparativoTableRows(quote) {
         // es la ÚLTIMA fila de la tabla, después de "TOTAL" (ver
         // firstPaymentRow más abajo y su uso en
         // buildComparativoOverlayDocDefinition).
-        ["Total Programa", option => formatCurrency(option.totals.subtotalCursos, currency)],
+        ["Total Programa", option => fmtPrimary(option.totals.subtotalCursos)],
 
-        [insuranceRowLabel(options), option => formatCurrency(option.insurance.cost, currency)],
+        [insuranceRowLabel(options), option => fmtPrimary(option.insurance.cost)],
 
-        ["Visa", option => formatCurrency(option.visa.cost, currency)],
+        ["Visa", option => fmtPrimary(option.visa.cost)],
 
-        ["Adicionales", option => formatCurrency(option.totals.adicionales, currency)]
+        ["Adicionales", option => fmtPrimary(option.totals.adicionales)]
 
     ];
 
@@ -1049,7 +1079,7 @@ function buildComparativoTableRows(quote) {
 
             "Descuento",
 
-            option => option.totals.descuento > 0 ? `- ${formatCurrency(option.totals.descuento, currency)}` : "-"
+            option => option.totals.descuento > 0 ? `- ${fmtPrimary(option.totals.descuento)}` : "-"
 
         ]);
 
@@ -1057,7 +1087,7 @@ function buildComparativoTableRows(quote) {
 
     if (hasExtraCosts) {
 
-        conceptRows.push(["Costos Extras*", () => formatCurrency(quote.extraCosts.total, currency)]);
+        conceptRows.push(["Costos Extras*", () => fmtPrimary(quote.extraCosts.total)]);
 
     }
 
@@ -1083,7 +1113,7 @@ function buildComparativoTableRows(quote) {
 
         ...options.map(option => ({
 
-            text: formatCurrency(option.totals.total, currency),
+            text: fmtPrimary(option.totals.total),
 
             fontSize: 10,
 
@@ -1111,7 +1141,7 @@ function buildComparativoTableRows(quote) {
 
         ...options.map(option => ({
 
-            text: option.totals.primerPago !== null ? formatCurrency(option.totals.primerPago, currency) : "-",
+            text: option.totals.primerPago !== null ? fmtPrimary(option.totals.primerPago) : "-",
 
             fontSize: 10,
 
@@ -1143,13 +1173,13 @@ function buildComparativoTableRows(quote) {
  pestaña).
 ==========================================================*/
 
-function buildGeneralNotesSection(quote) {
+function buildGeneralNotesSection(quote, moneyCtx) {
 
-    return buildNotesSection(quote);
+    return buildNotesSection(quote, moneyCtx);
 
 }
 
-function buildComparativoOverlayDocDefinition(quote, student) {
+function buildComparativoOverlayDocDefinition(quote, student, moneyCtx) {
 
     const generatedDate = quote.generatedAt
 
@@ -1167,7 +1197,7 @@ function buildComparativoOverlayDocDefinition(quote, student) {
 
     ];
 
-    const { headerRow, bodyRows, totalRow, firstPaymentRow, columnWidths } = buildComparativoTableRows(quote);
+    const { headerRow, bodyRows, totalRow, firstPaymentRow, columnWidths } = buildComparativoTableRows(quote, moneyCtx);
 
     return {
 
@@ -1198,7 +1228,7 @@ function buildComparativoOverlayDocDefinition(quote, student) {
 
             },
 
-            buildGeneralNotesSection(quote),
+            buildGeneralNotesSection(quote, moneyCtx),
 
             {
 
@@ -1299,21 +1329,23 @@ function buildComparativoOverlayDocDefinition(quote, student) {
  comparación.
 ==========================================================*/
 
-async function generateQuotationPdfBlob(quote, student, advisor) {
+async function generateQuotationPdfBlob(quote, student, advisor, currencyPair = { primary: "AUD", secondary: "USD" }) {
 
     const options = quote.options || [];
+
+    const moneyCtx = await buildMoneyContext(quote.currency, currencyPair);
 
     const optionOverlayBuffers = await Promise.all(options.map(async option => {
 
         const legacyQuote = buildLegacyOptionQuote(quote, option);
 
-        const overlayDocDefinition = await buildOverlayDocDefinition(legacyQuote, student, advisor, option.label);
+        const overlayDocDefinition = buildOverlayDocDefinition(legacyQuote, student, advisor, option.label, moneyCtx);
 
         return renderPdfMakeBuffer(overlayDocDefinition);
 
     }));
 
-    const comparativoOverlayBytes = await renderPdfMakeBuffer(buildComparativoOverlayDocDefinition(quote, student));
+    const comparativoOverlayBytes = await renderPdfMakeBuffer(buildComparativoOverlayDocDefinition(quote, student, moneyCtx));
 
     // Onshore: SIEMPRE la misma portada, sin importar la ciudad. Offshore
     // mantiene la lógica existente (portada según la ciudad principal).

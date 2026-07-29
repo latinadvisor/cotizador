@@ -373,6 +373,14 @@ async function calculateCourseLine(course, nationality) {
         // subtotal/total, ver database.js#fetchCourseDetails.
         bonusNotes: details.bonusNotes || [],
 
+        // Desglose de "discount" en sus 2 componentes — solo los usa
+        // pricing.js#calculateOffshoreFirstPayment25Plus, ver esa función.
+        priceDiscount: details.priceDiscount || 0,
+
+        enrollmentFeeWaivedAmount: details.enrollmentFeeWaivedAmount || 0,
+
+        materialsFeeWaivedAmount: details.materialsFeeWaivedAmount || 0,
+
         subtotal: grossSubtotal - details.discount,
 
         // Primer depósito Onshore (Cursos!L) — ver
@@ -808,14 +816,13 @@ function sumBySubtotal(lines) {
  cliente: en ese caso solo se muestra TOTAL, ni en pantalla ni
  en PDF) — se devuelve `null`, no un número, para que
  summary.js/pdf.js puedan distinguir "no aplica" de "$0". Si son
- 25 semanas o más: 50% de Programa+Matrícula+Materiales
- ("subtotalCursos", el mismo que ya se muestra como "Total
- Programa") más Visa y Seguro médico.
+ 25 semanas o más, ver calculateOffshoreFirstPayment25Plus().
 
  Onshore: suma del "Primer depósito" (Cursos!L) de cada curso de
  la opción, más Visa y Seguro médico. Nunca un único depósito
  para toda la opción: cada curso busca su propio valor en la
- hoja (ver database.js#fetchCourseDetails).
+ hoja (ver database.js#fetchCourseDetails). NUNCA cambia por
+ promociones (decisión confirmada del cliente).
 
  En ambos casos, "Visa" es el MISMO valor ya calculado para el
  resto de la cotización (calculateVisa) MÁS el recargo desde la
@@ -823,11 +830,47 @@ function sumBySubtotal(lines) {
  — nunca una segunda lógica de Visa independiente.
 ==========================================================*/
 
-function calculateFirstPayment({ applicationType, totalWeeks, courseLines, subtotalCursos, insurance, visa, secondApplicationSurcharge }) {
+/*
+    Fórmula pedida por el cliente (reemplaza el "50% de subtotalCursos"
+    anterior, SOLO para Offshore ≥25 semanas):
 
-    const totalVisaCost = visa.cost + secondApplicationSurcharge.totalAmount;
+      1. Programa = Σ line.price (curso solo, sin matrícula/materiales)
+      2. Beneficio = Σ line.priceDiscount (SOLO el descuento de precio del
+         curso — nunca el valor de matrícula/materiales gratis, que se
+         suman aparte en el paso 4 ya en $0 si corresponde; ver
+         database.js#fetchCourseDetails)
+      3. (Programa - Beneficio) / 2
+      4. + Matrícula y Materiales, cada una ya neta de AMBOS mecanismos
+         de waiver: la regla de institución (line.enrollmentFee, ver
+         applyInstitutionEnrollmentFeeRule) Y la promoción de matrícula/
+         materiales gratis (line.enrollmentFeeWaivedAmount/
+         materialsFeeWaivedAmount)
+      5. + Otros Cargos COMPLETO: Seguro, Visa, recargo de aplicación,
+         extras offshore y servicios/traducciones — todo lo que el PDF ya
+         agrupa bajo "OTROS CARGOS" (ver pdf.js#buildCostTableSection)
+*/
+
+function calculateOffshoreFirstPayment25Plus({ courseLines, insurance, visa, secondApplicationSurcharge, offshoreExtras, servicesSubtotal }) {
+
+    const programa = courseLines.reduce((sum, line) => sum + line.price, 0);
+
+    const beneficio = courseLines.reduce((sum, line) => sum + line.priceDiscount, 0);
+
+    const matricula = courseLines.reduce((sum, line) => sum + Math.max(0, line.enrollmentFee - line.enrollmentFeeWaivedAmount), 0);
+
+    const materiales = courseLines.reduce((sum, line) => sum + Math.max(0, line.materialsFee - line.materialsFeeWaivedAmount), 0);
+
+    const otrosCargos = insurance.cost + visa.cost + secondApplicationSurcharge.totalAmount + offshoreExtras.total + servicesSubtotal;
+
+    return (programa - beneficio) / 2 + matricula + materiales + otrosCargos;
+
+}
+
+function calculateFirstPayment({ applicationType, totalWeeks, courseLines, insurance, visa, secondApplicationSurcharge, offshoreExtras, servicesSubtotal }) {
 
     if (applicationType === "Onshore") {
+
+        const totalVisaCost = visa.cost + secondApplicationSurcharge.totalAmount;
 
         const depositsSum = courseLines.reduce((sum, line) => sum + (line.firstPaymentDeposit || 0), 0);
 
@@ -837,7 +880,7 @@ function calculateFirstPayment({ applicationType, totalWeeks, courseLines, subto
 
     if (totalWeeks < 25) return null;
 
-    return subtotalCursos * 0.5 + totalVisaCost + insurance.cost;
+    return calculateOffshoreFirstPayment25Plus({ courseLines, insurance, visa, secondApplicationSurcharge, offshoreExtras, servicesSubtotal });
 
 }
 
@@ -861,13 +904,15 @@ function assembleTotals({ courseLines, insurance, visa, secondApplicationSurchar
 
         courseLines,
 
-        subtotalCursos,
-
         insurance,
 
         visa,
 
-        secondApplicationSurcharge
+        secondApplicationSurcharge,
+
+        offshoreExtras,
+
+        servicesSubtotal
 
     });
 

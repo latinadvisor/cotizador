@@ -500,6 +500,25 @@ async function fetchProgramsByCourseSelection({ college, city, type, subtype }) 
  excluye del cálculo de precio en fetchCourseDetails y solo
  aparece como nota en el bloque "🎉 Promoción aplicada" del PDF
  (ver database.js#buildPromotionEffect / pdf.js#buildPromotionBlock).
+
+ COMBINABLE admite 3 valores (decisión confirmada del cliente):
+   - SI: se combina con otras de su MISMO carril (ver abajo).
+   - NO (o vacío): no se combina, pero solo compite dentro de su
+     propio carril — no bloquea el otro carril.
+   - EXCLUSIVA: gana ella sola, bloqueando TODO lo demás (ambos
+     carriles), sin importar prioridad de las otras filas.
+
+ Las promociones se evalúan en 2 carriles INDEPENDIENTES que
+ nunca compiten entre sí (arreglo confirmado tras detectar que
+ un bono podía bloquear sin sentido un descuento real):
+   - Carril de PRECIO (descuentos/precio especial/matrícula-
+     materiales gratis/pague X estudie Y): prioridad+combinable
+     se resuelven SOLO entre las de este carril.
+   - Carril de BONOS informativos (semanas gratis): prioridad+
+     combinable se resuelven SOLO entre las de este carril.
+ Por eso, sin EXCLUSIVA, siempre puede mostrarse a la vez el
+ ganador de cada carril (un descuento real Y un bono informativo
+ juntos) — son beneficios de naturaleza distinta.
 ==========================================================*/
 
 function criterionMatches(cellValue, candidate) {
@@ -691,6 +710,15 @@ async function evaluatePromotionsForCourse({ college, city, program, subtype, ty
 
     }));
 
+    if (effects.length === 0) return [];
+
+    // EXCLUSIVA gana ella sola, bloqueando AMBOS carriles — se resuelve
+    // antes de separar por carril. selectByPriority ya deja solo 1
+    // resultado acá porque "exclusiva" !== "si" (no se combina).
+    const exclusiveEffects = effects.filter(effect => normalize(effect.combinable) === "exclusiva");
+
+    if (exclusiveEffects.length > 0) return selectByPriority(exclusiveEffects);
+
     const priceAffecting = selectByPriority(effects.filter(effect => effect.isPriceAffecting));
 
     const bonuses = selectByPriority(effects.filter(effect => !effect.isPriceAffecting));
@@ -745,6 +773,12 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
             discountSource: null,
 
             bonusNotes: [],
+
+            priceDiscount: 0,
+
+            enrollmentFeeWaivedAmount: 0,
+
+            materialsFeeWaivedAmount: 0,
 
             firstPaymentDeposit: 0
 
@@ -831,6 +865,21 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
     // solo se muestran como nota aparte en el PDF (ver pdf.js#buildPromotionBlock).
     const bonusNotes = bonusPromotions.map(effect => effect.description);
 
+    /*
+        Desglose de "discount" en sus 2 componentes — necesarios para la
+        fórmula de Primer Pago Offshore ≥25 semanas (ver
+        pricing.js#calculateOffshoreFirstPayment25Plus): ese cálculo resta
+        SOLO el descuento de precio del curso, nunca el valor de matrícula/
+        materiales gratis (que se suman aparte, ya en $0 si corresponde).
+        `discount` en sí NO cambia — sigue siendo la suma de ambos, para
+        "Descuento" en pantalla/PDF exactamente como hoy.
+    */
+    const priceDiscount = Math.max(0, catalogPrice - programPrice);
+
+    const enrollmentFeeWaivedAmount = enrollmentWaived ? catalogEnrollmentFee : 0;
+
+    const materialsFeeWaivedAmount = materialsWaived ? catalogMaterialsFee : 0;
+
     return {
 
         found: true,
@@ -848,6 +897,12 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
         discountSource,
 
         bonusNotes,
+
+        priceDiscount,
+
+        enrollmentFeeWaivedAmount,
+
+        materialsFeeWaivedAmount,
 
         // Primer depósito Onshore (Cursos!L, columna "Primer deposito") —
         // NUNCA cambia por promociones (decisión confirmada del cliente),

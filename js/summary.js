@@ -47,6 +47,24 @@ function createSummaryCard() {
 
         </div>
 
+        <div class="form-group">
+
+            <label for="pdf_currency_pair">Monedas del PDF</label>
+
+            <select id="pdf_currency_pair">
+
+                <option value="AUD-USD">AUD - USD</option>
+
+                <option value="EUR-COP">EUR - COP</option>
+
+                <option value="EUR-USD">EUR - USD</option>
+
+                <option value="AUD-EUR">AUD - EUR</option>
+
+            </select>
+
+        </div>
+
         <div class="send-container">
 
             ${createButton("Generar Cotización", "btnGenerateQuotation", { disabled: true, variant: "secondary" })}
@@ -532,6 +550,30 @@ function insuranceRowLabel(options) {
     const named = options.find(option => option.insurance.name);
 
     return named ? `Seguro médico (${named.insurance.name})` : "Seguro Médico";
+
+}
+
+
+
+/*==========================================================
+ PAR DE MONEDAS DEL PDF
+ ----------------------------------------------------------
+ Elegido por la asesora antes de generar el PDF (ver
+ js/pdf.js#generateQuotationPdfBlob) — la moneda antes del guion
+ es la principal, la de después la columna comparativa. Ambas se
+ convierten con la tasa del día desde la moneda real de cálculo
+ de la cotización (quote.currency) vía fx.js#fetchExchangeRate,
+ sin importar si coinciden con el destino o no (conversión
+ "identidad" = tasa 1 cuando sí coinciden).
+==========================================================*/
+
+function getSelectedCurrencyPair() {
+
+    const select = document.getElementById("pdf_currency_pair");
+
+    const [primary, secondary] = (select ? select.value : "AUD-USD").split("-");
+
+    return { primary, secondary };
 
 }
 

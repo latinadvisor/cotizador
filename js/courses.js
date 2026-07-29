@@ -264,7 +264,7 @@ function getCurrentApplicationType() {
 
 
 /*==========================================================
- CAMPO "HORARIO DE ESTUDIO" (Mañana/Tarde/Noche)
+ CAMPO "HORARIO DE ESTUDIO" (Mañana/Tarde/Noche/No aplica)
  ----------------------------------------------------------
  Obligatorio para TODOS los cursos, sin importar el Tipo de
  Aplicación (a diferencia de "¿Es estudiante de la institución?",
@@ -272,6 +272,13 @@ function getCurrentApplicationType() {
  variar según este valor — ver database.js#resolveWeeklyRate —
  y también es uno de los criterios de coincidencia del Motor de
  Promociones (database.js#evaluatePromotionsForCourse).
+
+ "No aplica" es para programas (típicamente VET/HE) que no
+ manejan horarios — con ese valor, resolveWeeklyRate no
+ encuentra columna "Valor semana No aplica" y cae directo a
+ "Valor semana" general, exactamente igual que si el curso no
+ tuviera tarifas diferenciadas por horario. No requiere ningún
+ caso especial en database.js.
 ==========================================================*/
 
 function createScheduleField(id) {
@@ -295,6 +302,8 @@ function createScheduleField(id) {
             <option value="Tarde">Tarde</option>
 
             <option value="Noche">Noche</option>
+
+            <option value="No aplica">No aplica</option>
 
         </select>
 

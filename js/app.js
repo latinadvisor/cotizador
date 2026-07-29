@@ -190,11 +190,13 @@ async function handleGenerateQuotation() {
 
     const advisor = getAdvisorInfo();
 
+    const currencyPair = getSelectedCurrencyPair();
+
     try {
 
         lastGeneratedPdfBlob = await withTimeout(
 
-            generateQuotationPdfBlob(lastCalculatedQuote, student, advisor),
+            generateQuotationPdfBlob(lastCalculatedQuote, student, advisor, currencyPair),
 
             30000,
 
