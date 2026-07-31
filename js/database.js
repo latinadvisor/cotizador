@@ -521,13 +521,26 @@ async function fetchProgramsByCourseSelection({ college, city, type, subtype }) 
  juntos) — son beneficios de naturaleza distinta.
 ==========================================================*/
 
+/*
+    Admite varios valores separados por coma en una misma celda (ej.
+    NACIONALIDAD = "Chilena,Argentina,Uruguaya,Mexicana,Brasileña") para
+    no tener que crear una fila idéntica por cada valor — aplica a
+    CUALQUIER criterio, no solo Nacionalidad. Ignora acentos/mayúsculas
+    en ambos lados (la persona que llena el Sheet puede escribir
+    "Brasilena" sin ñ y de todos modos calza).
+*/
+
 function criterionMatches(cellValue, candidate) {
 
-    const cell = normalize(cellValue);
+    const raw = String(cellValue == null ? "" : cellValue).trim();
 
-    if (!cell) return true; // vacío = aplica a todos
+    if (!raw) return true; // vacío = aplica a todos
 
-    return cell === normalize(candidate);
+    const candidateNormalized = stripAccents(normalize(candidate));
+
+    const allowedValues = raw.split(",").map(value => stripAccents(normalize(value)));
+
+    return allowedValues.includes(candidateNormalized);
 
 }
 
@@ -540,6 +553,26 @@ function weeksInRange(row, weeks) {
     if (min !== "" && min !== null && min !== undefined && weeks < Number(min)) return false;
 
     if (max !== "" && max !== null && max !== undefined && weeks > Number(max)) return false;
+
+    return true;
+
+}
+
+/*
+    FECHA_INICIO/FECHA_FIN (vigencia) — ambas vacías = sin límite de
+    fechas, igual que hoy. Formato esperado en el Sheet: AAAA-MM-DD.
+*/
+function isWithinValidityDates(row) {
+
+    const today = new Date();
+
+    const start = row["FECHA_INICIO"] ? new Date(row["FECHA_INICIO"]) : null;
+
+    const end = row["FECHA_FIN"] ? new Date(row["FECHA_FIN"]) : null;
+
+    if (start && !isNaN(start) && today < start) return false;
+
+    if (end && !isNaN(end) && today > end) return false;
 
     return true;
 
@@ -563,32 +596,74 @@ function defaultPromotionDescription(tipo, valor) {
 
         case "materiales_gratis": return "Materiales gratis";
 
+        case "servicio_gratis": return "Servicio adicional sin costo";
+
+        case "personalizada": return "Promoción especial";
+
         default: return "Promoción";
 
     }
 
 }
 
-function buildPromotionEffect(row) {
+/*
+    Si la fila deja AFECTA_PRECIO vacío (filas cargadas antes de que
+    existiera esta columna), se usa este respaldo según el tipo — pero
+    el valor real de la columna, cuando está presente, SIEMPRE manda.
+    Esto es lo que reemplaza la regla fija que antes tenía yo en el
+    código ("SEMANAS_GRATIS siempre es informativa") — ahora es un dato
+    configurable por fila, no una decisión fija del programador.
+*/
+const PRICE_AFFECTING_BY_DEFAULT = new Set([
+    "precio_semana_especial", "descuento_porcentaje", "descuento_fijo",
+    "pague_x_estudie_y", "matricula_gratis", "materiales_gratis"
+]);
+
+/*
+    MODO_APLICACION=POR_BLOQUE: el beneficio se repite automáticamente
+    cada PARAM_SEMANAS_BLOQUE semanas completas (ej. cada 12 semanas
+    reservadas), opcionalmente topado por PARAM_TOPE_BLOQUES para que un
+    dato mal cargado no genere un descuento sin límite. MODO_APLICACION
+    vacío o "UNICA" = se aplica una sola vez (multiplicador 1), igual
+    que todas las promociones de hoy — este es el comportamiento por
+    defecto, así que ninguna fila existente se ve afectada.
+*/
+function resolveBlockMultiplier(row, weeks) {
+
+    if (normalize(row["MODO_APLICACION"]) !== "por_bloque") return 1;
+
+    const blockSize = Number(row["PARAM_SEMANAS_BLOQUE"]) || 0;
+
+    if (blockSize <= 0) return 1;
+
+    const blocksCompleted = Math.floor(weeks / blockSize);
+
+    const cap = row["PARAM_TOPE_BLOQUES"];
+
+    const maxBlocks = (cap !== "" && cap !== null && cap !== undefined) ? Number(cap) : Infinity;
+
+    return Math.min(blocksCompleted, maxBlocks);
+
+}
+
+function buildPromotionEffect(row, weeks) {
 
     const tipo = normalize(row["TIPO_PROMOCION"]);
 
-    const valor = Number(row["VALOR"]) || 0;
+    // PARAM_VALOR es el nombre nuevo de esta columna — se sigue leyendo
+    // VALOR como respaldo para no romper filas cargadas antes del
+    // rediseño de arquitectura (ver .docs/columnas-promociones.md).
+    const valor = Number(row["PARAM_VALOR"] ?? row["VALOR"]) || 0;
 
     const description = String(row["OBSERVACIONES"] || "").trim() || defaultPromotionDescription(tipo, valor);
 
-    /*
-        SEMANAS_GRATIS es un BONO INFORMATIVO, no un descuento (decisión
-        confirmada del cliente con el caso real "Aussie English Bonus
-        Weeks"): el estudiante paga el precio completo de las semanas
-        que reserva; la(s) semana(s) de regalo se suman a su tiempo de
-        estudio real pero NUNCA restan de "Total Programa"/"Descuento"/
-        "Total" (igual que su duración tampoco cuenta para Visa/Seguro/
-        el umbral de 25 semanas — ver evaluatePromotionsForCourse). Por
-        eso `isPriceAffecting: false` — fetchCourseDetails la excluye
-        del cálculo de precio/descuento y solo la muestra como nota en
-        el PDF (ver pdf.js#buildPromotionBlock).
-    */
+    const afectaPrecioCell = normalize(row["AFECTA_PRECIO"]);
+
+    const isPriceAffecting = afectaPrecioCell
+        ? afectaPrecioCell === "si"
+        : PRICE_AFFECTING_BY_DEFAULT.has(tipo);
+
+    const blockMultiplier = resolveBlockMultiplier(row, weeks);
 
     const effect = {
 
@@ -596,7 +671,7 @@ function buildPromotionEffect(row) {
 
         description,
 
-        isPriceAffecting: tipo !== "semanas_gratis",
+        isPriceAffecting,
 
         weeklyRateOverride: null,
 
@@ -605,6 +680,8 @@ function buildPromotionEffect(row) {
         percentOff: 0,
 
         fixedOff: 0,
+
+        freeWeeks: 0,
 
         waiveEnrollment: false,
 
@@ -616,13 +693,21 @@ function buildPromotionEffect(row) {
 
     else if (tipo === "descuento_porcentaje") effect.percentOff = valor;
 
-    else if (tipo === "descuento_fijo") effect.fixedOff = valor;
+    else if (tipo === "descuento_fijo") effect.fixedOff = valor * blockMultiplier;
+
+    else if (tipo === "semanas_gratis") effect.freeWeeks = valor * blockMultiplier;
 
     else if (tipo === "pague_x_estudie_y") effect.chargeableWeeksOverride = valor;
 
     else if (tipo === "matricula_gratis") effect.waiveEnrollment = true;
 
     else if (tipo === "materiales_gratis") effect.waiveMaterials = true;
+
+    // servicio_gratis / personalizada: sin efecto numérico, siempre
+    // terminan en el carril informativo (bonusNotes) salvo que alguien
+    // marque AFECTA_PRECIO=SI a propósito, en cuyo caso no hacen nada al
+    // precio de todos modos (son beneficios que no se calculan solos,
+    // ver .docs/columnas-promociones.md).
 
     return effect;
 
@@ -680,7 +765,7 @@ function selectByPriority(effects) {
     son dos cosas independientes (ver database.js#buildPromotionEffect).
 */
 
-async function evaluatePromotionsForCourse({ college, city, program, subtype, type, schedule, nationality, weeks }) {
+async function evaluatePromotionsForCourse({ college, city, program, subtype, type, schedule, nationality, weeks, applicationType }) {
 
     const { promociones } = await loadAllSheetsData();
 
@@ -696,13 +781,15 @@ async function evaluatePromotionsForCourse({ college, city, program, subtype, ty
             criterionMatches(row["HORARIO"], schedule) &&
             criterionMatches(row["NACIONALIDAD"], nationality) &&
             criterionMatches(row["CIUDAD"], city) &&
-            weeksInRange(row, weeks);
+            criterionMatches(row["APLICACION"], applicationType) &&
+            weeksInRange(row, weeks) &&
+            isWithinValidityDates(row);
 
     });
 
     const effects = candidates.map(row => ({
 
-        ...buildPromotionEffect(row),
+        ...buildPromotionEffect(row, weeks),
 
         priority: row["PRIORIDAD"],
 
@@ -742,7 +829,7 @@ function resolveWeeklyRate(row, schedule) {
 
 }
 
-async function fetchCourseDetails({ college, city, type, subtype, program, weeks, schedule, nationality }) {
+async function fetchCourseDetails({ college, city, type, subtype, program, weeks, schedule, nationality, applicationType }) {
 
     const { cursos } = await loadAllSheetsData();
 
@@ -800,7 +887,7 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
     const promotions = await evaluatePromotionsForCourse({
 
-        college, city, program, subtype, type, schedule, nationality, weeks: officialWeeks
+        college, city, program, subtype, type, schedule, nationality, applicationType, weeks: officialWeeks
 
     });
 
@@ -813,6 +900,8 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
     let weeklyRate = catalogWeeklyRate;
 
     let chargeableWeeks = officialWeeks;
+
+    let freeWeeksTotal = 0;
 
     let enrollmentWaived = false;
 
@@ -828,6 +917,8 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
         if (effect.chargeableWeeksOverride != null) chargeableWeeks = effect.chargeableWeeksOverride;
 
+        freeWeeksTotal += effect.freeWeeks;
+
         if (effect.waiveEnrollment) enrollmentWaived = true;
 
         if (effect.waiveMaterials) materialsWaived = true;
@@ -837,6 +928,14 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
         fixedOff += effect.fixedOff;
 
     });
+
+    /*
+        SEMANAS_GRATIS con AFECTA_PRECIO=SI (ej. ILSC "Paga 10, Estudia
+        12"): reduce cuántas semanas se cobran, NUNCA officialWeeks (la
+        duración real sigue sin tocarse para Visa/Seguro/umbral de 25
+        semanas, mismo principio ya confirmado con Aussie English).
+    */
+    chargeableWeeks = Math.max(0, chargeableWeeks - freeWeeksTotal);
 
     let programPrice = weeklyRate * chargeableWeeks;
 

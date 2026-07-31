@@ -84,7 +84,7 @@ function getStudentCountryFromGhl() {
 const NATIONALITY_OPTIONS = [
 
     "Argentina", "Colombiana", "Mexicana", "Chilena", "Ecuatoriana",
-    "Venezolana", "Española", "Peruana", "Uruguaya", "Otra"
+    "Venezolana", "Española", "Peruana", "Uruguaya", "Brasileña", "Otra"
 
 ];
 

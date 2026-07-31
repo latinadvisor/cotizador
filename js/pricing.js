@@ -141,7 +141,7 @@ async function calculateQuotation() {
 
 async function calculateOptionQuote(courseOption, shared) {
 
-    const courseLines = await calculateAllCourseLines(courseOption.courses, shared.student.nationality);
+    const courseLines = await calculateAllCourseLines(courseOption.courses, shared.student.nationality, shared.student.application_type);
 
     applyInstitutionEnrollmentFeeRule(courseLines, shared.student.application_type);
 
@@ -311,7 +311,7 @@ function collectQuotationInput() {
  la hoja "Cursos" (ver database.js#fetchCourseDetails).
 ==========================================================*/
 
-async function calculateCourseLine(course, nationality) {
+async function calculateCourseLine(course, nationality, applicationType) {
 
     const requestedWeeks = Number(course.weeks) || 0;
 
@@ -331,7 +331,9 @@ async function calculateCourseLine(course, nationality) {
 
         schedule: course.schedule,
 
-        nationality
+        nationality,
+
+        applicationType
 
     });
 
@@ -395,9 +397,9 @@ async function calculateCourseLine(course, nationality) {
 
 }
 
-async function calculateAllCourseLines(courses, nationality) {
+async function calculateAllCourseLines(courses, nationality, applicationType) {
 
-    return Promise.all(courses.map(course => calculateCourseLine(course, nationality)));
+    return Promise.all(courses.map(course => calculateCourseLine(course, nationality, applicationType)));
 
 }
 
