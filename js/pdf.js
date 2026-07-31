@@ -367,9 +367,14 @@ function amountRow(label, amount, moneyCtx, options = {}) {
 
  Un curso puede tener ambas partes, solo una, o ninguna (en ese
  caso no se llama a esta función).
+
+ El título es siempre "Promoción aplicada" a secas — SIN el nombre
+ del curso al lado (pedido explícito del cliente, ronda de ajustes
+ tras la 3ra entrega): el curso ya se identifica por su posición en
+ el desglose de arriba.
 ==========================================================*/
 
-function buildPromotionBlock(course, label, moneyCtx) {
+function buildPromotionBlock(course, moneyCtx) {
 
     const hasDiscount = course.discount > 0;
 
@@ -385,7 +390,7 @@ function buildPromotionBlock(course, label, moneyCtx) {
 
     const rows = [
 
-        fullWidthRow(`Promoción aplicada — ${label}`, { bold: true, color: PDF_COLORS.greenDark, fontSize: 10, margin: [0, 4, 0, 2] })
+        fullWidthRow("Promoción aplicada", { bold: true, color: PDF_COLORS.greenDark, fontSize: 10, margin: [0, 4, 0, 2] })
 
     ];
 
@@ -731,7 +736,7 @@ function buildCostTableSection(quote, moneyCtx) {
 
         if (course.discount > 0 || (course.bonusNotes && course.bonusNotes.length > 0)) {
 
-            promotionBlocks.push(buildPromotionBlock(course, label, moneyCtx));
+            promotionBlocks.push(buildPromotionBlock(course, moneyCtx));
 
         }
 
