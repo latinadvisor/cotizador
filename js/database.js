@@ -829,17 +829,70 @@ function resolveWeeklyRate(row, schedule) {
 
 }
 
-async function fetchCourseDetails({ college, city, type, subtype, program, weeks, schedule, nationality, applicationType }) {
+/*
+    TARIFAS POR NACIONALIDAD (columna "Nacionalidad" de la hoja "Cursos")
+    ----------------------------------------------------------
+    Reemplaza el enfoque de una pestaña "Tarifas Especiales" separada
+    (nunca llegó a programarse — quedó solo como CSV de ejemplo,
+    descartado) por una columna dentro de la propia hoja "Cursos": ahora
+    puede haber VARIAS filas para el mismo Colegio+Ciudad+Tipo+Subtipo+
+    Programa, una por nacionalidad/continente, y se resuelve por
+    prioridad, deteniéndose en la primera coincidencia válida (decisión
+    confirmada del cliente):
 
-    const { cursos } = await loadAllSheetsData();
+      1. Coincidencia EXACTA de nacionalidad (ej. "Brasileña") — admite
+         listas separadas por coma, igual que en Promociones (reutiliza
+         criterionMatches, ver más abajo).
+      2. Coincidencia de continente (LATAM/Europa/Asia/África), resuelto
+         desde el PAÍS del estudiante (no desde su gentilicio — ver
+         countries.js#resolveContinentForCountry para el porqué).
+      3. Fila con "Nacionalidad" vacía = aplica a cualquier estudiante.
 
-    const row = cursos.find(r =>
+    Una fila con "Nacionalidad" vacía SIEMPRE se trata como universal,
+    nunca como criterio de continente/nacionalidad — por eso cada
+    verificación exige primero que la celda no esté vacía.
+*/
+function resolveCourseRow(cursos, { college, city, type, subtype, program, nationality, country }) {
+
+    const candidates = cursos.filter(r =>
         normalize(r["Colegio"]) === normalize(college) &&
         normalize(r["Ciudad"]) === normalize(city) &&
         normalizeCourseType(r["Tipo Curso"]) === type &&
         normalize(r["Subtipo"]) === normalize(subtype) &&
         normalize(r["Programa"]) === normalize(program)
     );
+
+    if (candidates.length === 0) return null;
+
+    const exactMatch = candidates.find(r => {
+        const cell = String(r["Nacionalidad"] || "").trim();
+        return cell !== "" && criterionMatches(cell, nationality);
+    });
+
+    if (exactMatch) return exactMatch;
+
+    const continent = resolveContinentForCountry(country);
+
+    if (continent) {
+
+        const continentMatch = candidates.find(r => {
+            const cell = String(r["Nacionalidad"] || "").trim();
+            return cell !== "" && criterionMatches(cell, continent);
+        });
+
+        if (continentMatch) return continentMatch;
+
+    }
+
+    return candidates.find(r => String(r["Nacionalidad"] || "").trim() === "") || null;
+
+}
+
+async function fetchCourseDetails({ college, city, type, subtype, program, weeks, schedule, nationality, country, applicationType }) {
+
+    const { cursos } = await loadAllSheetsData();
+
+    const row = resolveCourseRow(cursos, { college, city, type, subtype, program, nationality, country });
 
     if (!row) {
 

@@ -238,6 +238,91 @@ const WORLD_COUNTRIES = [
 
 ];
 
+/*==========================================================
+ CONTINENTE POR PAÍS (Prioridad 2 de database.js#resolveCourseRow)
+ ----------------------------------------------------------
+ Solo clasifica los 4 continentes que usa esa lógica —
+ LATAM/Europa/Asia/África, decisión confirmada con el cliente
+ tras detectar que el gentilicio del estudiante ("Nacionalidad",
+ student.js#NATIONALITY_OPTIONS) es una lista corta que no
+ distingue continente para "Otra". Por eso el continente se
+ resuelve desde el PAÍS del estudiante (student.country, el que
+ llega de GHL — ver student.js#getStudentCountryFromGhl), que sí
+ tiene granularidad completa vía WORLD_COUNTRIES.
+
+ LATAM cubre el núcleo hispanoamericano + Brasil (los mercados
+ reales de LatinAdvisor). Deliberadamente NO incluye Caribe no
+ hispanohablante (Jamaica, Bahamas, Trinidad y Tobago, Aruba,
+ Curazao, Haití, Guyana, Surinam, Belice) ni Norteamérica/Oceanía
+ — esos países quedan sin continente asignado y la búsqueda cae
+ directo a la fila con Nacionalidad vacía (Prioridad 3, aplica a
+ todos). Si el negocio necesita reclasificar alguno de estos,
+ basta con agregarlo al mapa de abajo.
+==========================================================*/
+const COUNTRY_CONTINENT_BY_ISO2 = {
+
+    // LATAM
+    AR: "LATAM", BO: "LATAM", BR: "LATAM", CL: "LATAM", CO: "LATAM",
+    CR: "LATAM", CU: "LATAM", EC: "LATAM", SV: "LATAM", GT: "LATAM",
+    HN: "LATAM", MX: "LATAM", NI: "LATAM", PA: "LATAM", PY: "LATAM",
+    PE: "LATAM", DO: "LATAM", UY: "LATAM", VE: "LATAM",
+
+    // Europa
+    AD: "Europa", AL: "Europa", AT: "Europa", BA: "Europa", BE: "Europa",
+    BG: "Europa", BY: "Europa", CH: "Europa", CY: "Europa", CZ: "Europa",
+    DE: "Europa", DK: "Europa", EE: "Europa", ES: "Europa", FI: "Europa",
+    FO: "Europa", FR: "Europa", GB: "Europa", GI: "Europa", GL: "Europa",
+    GR: "Europa", HR: "Europa", HU: "Europa", IE: "Europa", IS: "Europa",
+    IT: "Europa", LI: "Europa", LT: "Europa", LU: "Europa", LV: "Europa",
+    MC: "Europa", MD: "Europa", ME: "Europa", MK: "Europa", MT: "Europa",
+    NL: "Europa", NO: "Europa", PL: "Europa", PT: "Europa", RO: "Europa",
+    RS: "Europa", RU: "Europa", SE: "Europa", SI: "Europa", SK: "Europa",
+    SM: "Europa", UA: "Europa", VA: "Europa",
+
+    // Asia
+    AE: "Asia", AF: "Asia", AM: "Asia", AZ: "Asia", BD: "Asia", BH: "Asia",
+    BN: "Asia", BT: "Asia", CN: "Asia", GE: "Asia", HK: "Asia", ID: "Asia",
+    IL: "Asia", IN: "Asia", IQ: "Asia", IR: "Asia", JO: "Asia", JP: "Asia",
+    KG: "Asia", KH: "Asia", KP: "Asia", KR: "Asia", KW: "Asia", KZ: "Asia",
+    LA: "Asia", LB: "Asia", LK: "Asia", MM: "Asia", MN: "Asia", MO: "Asia",
+    MV: "Asia", MY: "Asia", NP: "Asia", OM: "Asia", PH: "Asia", PK: "Asia",
+    PS: "Asia", QA: "Asia", SA: "Asia", SG: "Asia", SY: "Asia", TH: "Asia",
+    TJ: "Asia", TL: "Asia", TM: "Asia", TR: "Asia", TW: "Asia", UZ: "Asia",
+    VN: "Asia", YE: "Asia",
+
+    // África
+    AO: "Africa", BF: "Africa", BI: "Africa", BJ: "Africa", BW: "Africa",
+    CD: "Africa", CF: "Africa", CG: "Africa", CI: "Africa", CM: "Africa",
+    CV: "Africa", DJ: "Africa", DZ: "Africa", EG: "Africa", ER: "Africa",
+    ET: "Africa", GA: "Africa", GH: "Africa", GM: "Africa", GN: "Africa",
+    GQ: "Africa", GW: "Africa", KE: "Africa", KM: "Africa", LR: "Africa",
+    LS: "Africa", LY: "Africa", MA: "Africa", MG: "Africa", ML: "Africa",
+    MR: "Africa", MU: "Africa", MW: "Africa", MZ: "Africa", NA: "Africa",
+    NE: "Africa", NG: "Africa", RW: "Africa", SC: "Africa", SD: "Africa",
+    SL: "Africa", SN: "Africa", SO: "Africa", SS: "Africa", ST: "Africa",
+    SZ: "Africa", TD: "Africa", TG: "Africa", TN: "Africa", TZ: "Africa",
+    UG: "Africa", ZA: "Africa", ZM: "Africa", ZW: "Africa"
+
+};
+
+/*
+    Igual criterio tolerante que findCountryByName (student.js): ignora
+    tildes/mayúsculas, así funciona sin importar cómo haya quedado
+    guardado el país en el formulario. normalize()/stripAccents() ya
+    están definidos en database.js, cargado antes que este archivo.
+*/
+function resolveContinentForCountry(countryName) {
+
+    if (!countryName) return null;
+
+    const target = stripAccents(normalize(countryName));
+
+    const country = WORLD_COUNTRIES.find(c => stripAccents(normalize(c.name)) === target);
+
+    return (country && COUNTRY_CONTINENT_BY_ISO2[country.iso2]) || null;
+
+}
+
 /*
     Países con los que trabaja habitualmente LatinAdvisor — se
     muestran primero en el selector de indicativo telefónico

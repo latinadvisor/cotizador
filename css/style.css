@@ -506,6 +506,18 @@ CURSOS
 
 
 
+.course-header-actions{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:14px;
+
+}
+
+
+
 .delete-course{
 
     background:transparent;
@@ -531,6 +543,60 @@ CURSOS
     color:#991b1b;
 
     transform:scale(1.05);
+
+}
+
+
+
+.manual-course-btn{
+
+    background:transparent;
+
+    border:1px solid var(--warning);
+
+    color:var(--warning);
+
+    font-weight:600;
+
+    cursor:pointer;
+
+    font-size:13px;
+
+    padding:6px 12px;
+
+    border-radius:8px;
+
+    transition:.2s;
+
+}
+
+
+
+.manual-course-btn:hover{
+
+    background:#fef3e2;
+
+}
+
+
+
+.manual-course-btn.active{
+
+    background:var(--warning);
+
+    color:#fff;
+
+}
+
+
+
+.manual-fields{
+
+    margin-top:20px;
+
+    padding-top:20px;
+
+    border-top:1px dashed var(--border);
 
 }
 

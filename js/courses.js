@@ -103,15 +103,30 @@ function createCourseCard(id, optionId) {
 
             </h3>
 
-            <button
-                type="button"
-                class="delete-course"
-                title="Eliminar curso"
-                onclick="removeCourse(${optionId}, ${id})">
+            <div class="course-header-actions">
 
-                🗑
+                <button
+                    type="button"
+                    class="manual-course-btn"
+                    id="manualToggle_${id}"
+                    title="Ingresar valores manualmente para este curso"
+                    onclick="toggleManualOverride(${id})">
 
-            </button>
+                    ✏️ Manual
+
+                </button>
+
+                <button
+                    type="button"
+                    class="delete-course"
+                    title="Eliminar curso"
+                    onclick="removeCourse(${optionId}, ${id})">
+
+                    🗑
+
+                </button>
+
+            </div>
 
         </div>
 
@@ -174,6 +189,8 @@ function createCourseCard(id, optionId) {
             ${createWeeksField(id)}
 
         </div>
+
+        ${createManualOverrideFields(id)}
 
     </div>
 
@@ -348,6 +365,107 @@ function createWeeksField(id) {
     </div>
 
     `;
+
+}
+
+
+
+/*==========================================================
+ CAMPOS "MANUAL" (SOBRESCRITURA DE VALORES ECONÓMICOS)
+ ----------------------------------------------------------
+ Ocultos por defecto. Al activarse con toggleManualOverride(),
+ los valores aquí ingresados tienen prioridad sobre los del
+ curso seleccionado SOLO para precio/matrícula/materiales/
+ semanas — ver pricing.js#calculateCourseLine. El resto de la
+ información del curso (colegio, tipo, subtipo, programa,
+ descuentos, etc.) sigue viniendo de la base de datos sin
+ cambios.
+==========================================================*/
+
+function createManualOverrideFields(id) {
+
+    return `
+
+    <div class="manual-fields form-grid hidden" id="manualFields_${id}">
+
+        <div class="form-group">
+
+            <label for="manual_price_${id}">Valor del curso</label>
+
+            <input
+                id="manual_price_${id}"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Ej: 5000">
+
+        </div>
+
+        <div class="form-group">
+
+            <label for="manual_enrollment_${id}">Valor de la matrícula</label>
+
+            <input
+                id="manual_enrollment_${id}"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Ej: 200">
+
+        </div>
+
+        <div class="form-group">
+
+            <label for="manual_materials_${id}">Valor de materiales</label>
+
+            <input
+                id="manual_materials_${id}"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Ej: 150">
+
+        </div>
+
+        <div class="form-group">
+
+            <label for="manual_weeks_${id}">Tiempo de estudio (semanas)</label>
+
+            <input
+                id="manual_weeks_${id}"
+                type="number"
+                min="1"
+                max="208"
+                step="1"
+                placeholder="Ej: 12">
+
+        </div>
+
+    </div>
+
+    `;
+
+}
+
+/*
+    Activa/desactiva el modo Manual de una tarjeta. No borra los valores
+    ingresados al desactivarlo (por si la asesora lo vuelve a activar),
+    simplemente deja de usarlos — ver getAllCoursesData() más abajo.
+*/
+
+function toggleManualOverride(id) {
+
+    const button = document.getElementById(`manualToggle_${id}`);
+
+    const fields = document.getElementById(`manualFields_${id}`);
+
+    if (!button || !fields) return;
+
+    const isActive = !button.classList.contains("active");
+
+    button.classList.toggle("active", isActive);
+
+    fields.classList.toggle("hidden", !isActive);
 
 }
 
@@ -795,7 +913,20 @@ function getAllCoursesData(optionId) {
 
             // Solo tiene efecto en Onshore — ver
             // pricing.js#applyInstitutionEnrollmentFeeRule.
-            isExistingStudent: document.getElementById(`existing_student_${id}`).value === "Sí"
+            isExistingStudent: document.getElementById(`existing_student_${id}`).value === "Sí",
+
+            // Modo Manual — ver createManualOverrideFields()/toggleManualOverride()
+            // más arriba y pricing.js#calculateCourseLine (única prioridad: precio,
+            // matrícula, materiales y semanas; todo lo demás sigue viniendo de la BD).
+            isManualOverride: document.getElementById(`manualToggle_${id}`).classList.contains("active"),
+
+            manualPrice: document.getElementById(`manual_price_${id}`).value,
+
+            manualEnrollmentFee: document.getElementById(`manual_enrollment_${id}`).value,
+
+            manualMaterialsFee: document.getElementById(`manual_materials_${id}`).value,
+
+            manualWeeks: document.getElementById(`manual_weeks_${id}`).value
 
         });
 

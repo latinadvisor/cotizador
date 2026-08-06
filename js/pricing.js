@@ -141,7 +141,7 @@ async function calculateQuotation() {
 
 async function calculateOptionQuote(courseOption, shared) {
 
-    const courseLines = await calculateAllCourseLines(courseOption.courses, shared.student.nationality, shared.student.application_type);
+    const courseLines = await calculateAllCourseLines(courseOption.courses, shared.student.nationality, shared.student.country, shared.student.application_type);
 
     applyInstitutionEnrollmentFeeRule(courseLines, shared.student.application_type);
 
@@ -311,7 +311,25 @@ function collectQuotationInput() {
  la hoja "Cursos" (ver database.js#fetchCourseDetails).
 ==========================================================*/
 
-async function calculateCourseLine(course, nationality, applicationType) {
+/*
+    Modo Manual (ver courses.js#createManualOverrideFields/toggleManualOverride):
+    la asesora puede sobrescribir precio, matrícula, materiales y duración de un
+    curso puntual para negociaciones especiales, promociones no registradas, o
+    programas que aún no existen en la base de datos. Un campo vacío o no
+    numérico simplemente no sobrescribe nada (cae al valor de catálogo).
+*/
+
+function parseManualOverrideValue(rawValue) {
+
+    if (rawValue === undefined || rawValue === null || rawValue === "") return null;
+
+    const parsed = Number(rawValue);
+
+    return Number.isNaN(parsed) ? null : parsed;
+
+}
+
+async function calculateCourseLine(course, nationality, country, applicationType) {
 
     const requestedWeeks = Number(course.weeks) || 0;
 
@@ -333,11 +351,31 @@ async function calculateCourseLine(course, nationality, applicationType) {
 
         nationality,
 
+        country,
+
         applicationType
 
     });
 
-    const grossSubtotal = details.price + details.enrollmentFee + details.materialsFee;
+    const isManualOverride = !!course.isManualOverride;
+
+    const manualPrice = parseManualOverrideValue(course.manualPrice);
+
+    const manualEnrollmentFee = parseManualOverrideValue(course.manualEnrollmentFee);
+
+    const manualMaterialsFee = parseManualOverrideValue(course.manualMaterialsFee);
+
+    const manualWeeks = parseManualOverrideValue(course.manualWeeks);
+
+    const price = (isManualOverride && manualPrice !== null) ? manualPrice : details.price;
+
+    const enrollmentFee = (isManualOverride && manualEnrollmentFee !== null) ? manualEnrollmentFee : details.enrollmentFee;
+
+    const materialsFee = (isManualOverride && manualMaterialsFee !== null) ? manualMaterialsFee : details.materialsFee;
+
+    const officialWeeks = (isManualOverride && manualWeeks !== null) ? manualWeeks : details.officialWeeks;
+
+    const grossSubtotal = price + enrollmentFee + materialsFee;
 
     return {
 
@@ -357,15 +395,15 @@ async function calculateCourseLine(course, nationality, applicationType) {
 
         requestedWeeks,
 
-        officialWeeks: details.officialWeeks,
+        officialWeeks,
 
         found: details.found,
 
-        price: details.price,
+        price,
 
-        enrollmentFee: details.enrollmentFee,
+        enrollmentFee,
 
-        materialsFee: details.materialsFee,
+        materialsFee,
 
         discount: details.discount,
 
@@ -391,15 +429,19 @@ async function calculateCourseLine(course, nationality, applicationType) {
 
         // "¿Es estudiante de la institución?" (solo se pregunta/usa en
         // Onshore) — ver pricing.js#applyInstitutionEnrollmentFeeRule.
-        isExistingStudent: !!course.isExistingStudent
+        isExistingStudent: !!course.isExistingStudent,
+
+        // Informativo — permite que PDF/resumen señalen que este curso
+        // tiene valores editados manualmente, si se desea en el futuro.
+        isManualOverride
 
     };
 
 }
 
-async function calculateAllCourseLines(courses, nationality, applicationType) {
+async function calculateAllCourseLines(courses, nationality, country, applicationType) {
 
-    return Promise.all(courses.map(course => calculateCourseLine(course, nationality, applicationType)));
+    return Promise.all(courses.map(course => calculateCourseLine(course, nationality, country, applicationType)));
 
 }
 
@@ -478,7 +520,22 @@ function applyInstitutionEnrollmentFeeRule(courseLines, applicationType) {
  Costo = valor semanal del plan elegido × duración total de la
  cotización (suma de las semanas de todos los cursos, cada una
  ya resuelta según su tipo — ver calculateCourseLine).
+
+ El seguro SIEMPRE cubre 8 semanas (2 meses) adicionales sobre
+ esa duración (decisión confirmada del cliente) — el offset se
+ suma únicamente AQUÍ ADENTRO, nunca en `totalWeeks` en sí, que
+ sigue siendo la duración real del curso para todo lo demás que
+ lo usa: el umbral de Primer Pago Offshore ≥25 semanas (ver
+ calculateFirstPayment más abajo) y la etiqueta "ESTUDIO POR" del
+ PDF (pdf.js#buildOverlayDocDefinition, que recalcula su propio
+ computeTotalWeeks a partir de los cursos). insurance.cost es la
+ ÚNICA fuente de este monto — pantalla (summary.js), Resumen
+ Financiero (assembleTotals) y PDF (pdf.js) lo leen tal cual, sin
+ recalcularlo cada uno por su lado, así que quedan consistentes
+ automáticamente.
 ==========================================================*/
+
+const INSURANCE_EXTRA_WEEKS = 8;
 
 function computeTotalWeeks(courseLines) {
 
@@ -488,9 +545,11 @@ function computeTotalWeeks(courseLines) {
 
 async function calculateInsurance({ insuranceName, totalWeeks, quotationType }) {
 
+    const coverageWeeks = totalWeeks + INSURANCE_EXTRA_WEEKS;
+
     if (!insuranceName) {
 
-        return { name: "", totalWeeks, quotationType, weeklyRate: 0, cost: 0, found: false };
+        return { name: "", totalWeeks: coverageWeeks, quotationType, weeklyRate: 0, cost: 0, found: false };
 
     }
 
@@ -500,13 +559,13 @@ async function calculateInsurance({ insuranceName, totalWeeks, quotationType }) 
 
         name: insuranceName,
 
-        totalWeeks,
+        totalWeeks: coverageWeeks,
 
         quotationType,
 
         weeklyRate: rate.weeklyRate,
 
-        cost: rate.weeklyRate * totalWeeks,
+        cost: rate.weeklyRate * coverageWeeks,
 
         found: rate.found
 
@@ -966,7 +1025,12 @@ function collectWarnings({ courses, courseLines, insurance, visa, student }) {
 
         if (!course.schedule) missingFields.push("Horario de estudio");
 
-        if (course.type === "ELICOS" && (!course.weeks || Number(course.weeks) <= 0)) {
+        // En modo Manual, "Tiempo de estudio" (manualWeeks) reemplaza a
+        // "Duración (semanas)" como fuente de las semanas ELICOS — ver
+        // courses.js#createManualOverrideFields / calculateCourseLine.
+        const hasManualWeeks = course.isManualOverride && Number(course.manualWeeks) > 0;
+
+        if (course.type === "ELICOS" && !hasManualWeeks && (!course.weeks || Number(course.weeks) <= 0)) {
 
             missingFields.push("Duración (semanas)");
 
