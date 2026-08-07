@@ -60,9 +60,10 @@ function applyContactOwnerToAdvisor(rawOwnerName, rawOwnerEmail) {
  PAÍS DEL ESTUDIANTE
  ----------------------------------------------------------
  La FUENTE FINAL DE VERDAD para el país es siempre el select
- #student_country (ver getStudentData()) — alimenta
- directamente pricing.js#isCountryEligibleForMedicalExams, sin
- importar si el valor llegó automático desde GHL (búsqueda de
+ #student_country (ver getStudentData()) — alimenta directamente
+ countries.js#resolveContinentForCountry (fallback por continente
+ de las tarifas por nacionalidad, ver database.js#resolveCourseRow),
+ sin importar si el valor llegó automático desde GHL (búsqueda de
  lead, ver applyLeadToForm) o fue elegido a mano por la asesora.
  El campo NUNCA queda bloqueado: siempre es editable.
 

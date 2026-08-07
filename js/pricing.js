@@ -74,13 +74,7 @@ async function calculateQuotation() {
 
     });
 
-    const extraCosts = await calculateExtraCosts({
-
-        application_type: input.student.application_type,
-
-        country: input.student.country
-
-    });
+    const extraCosts = await calculateExtraCosts();
 
     const servicesLines = await calculateServicesLines(input.services);
 
@@ -702,12 +696,15 @@ async function calculateOffshoreExtras({ application_type, destination }) {
 /*==========================================================
  7.1 COSTOS EXTRAS (EXÁMENES MÉDICOS Y BIOMÉTRICOS)
  ----------------------------------------------------------
- Regla de negocio confirmada por el cliente: Exámenes Médicos y
- Exámenes Biométricos SOLO se muestran cuando la cotización es
- Offshore Y el país del estudiante (que llega desde GoHighLevel,
- ver student.js#getStudentCountryFromGhl) está en la lista de
- países autorizados. En cualquier otro escenario (Onshore, o
- país no autorizado) no aparecen.
+ Decisión confirmada del cliente (reemplaza la regla anterior de
+ "solo Offshore + país autorizado"): estos valores ahora SIEMPRE
+ aparecen, en Onshore y en Offshore, sin importar el país del
+ estudiante — el monto real depende de la nacionalidad y el
+ historial migratorio de cada estudiante, algo que el cotizador
+ no puede calcular; por eso se muestran siempre como valor
+ genérico informativo, a confirmar por el equipo de visa antes de
+ aplicar (ver el texto exacto en pdf.js#buildExtraCostsNoteText).
+ El monto de cada examen (hoja "Parámetros") no cambia.
 
  IMPORTANTE: estos valores son informativos ("Costos Extras",
  se pagan directamente a cada entidad proveedora) y NUNCA deben
@@ -715,25 +712,7 @@ async function calculateOffshoreExtras({ application_type, destination }) {
  assembleTotals() y viajan aparte en quote.extraCosts.
 ==========================================================*/
 
-const MEDICAL_EXAM_ELIGIBLE_COUNTRIES = ["colombia", "mexico", "peru", "argentina", "chile", "espana"];
-
-function isCountryEligibleForMedicalExams(country) {
-
-    const normalized = stripAccents(normalize(country));
-
-    return MEDICAL_EXAM_ELIGIBLE_COUNTRIES.includes(normalized);
-
-}
-
-async function calculateExtraCosts({ application_type, country }) {
-
-    const applies = application_type === "Offshore" && isCountryEligibleForMedicalExams(country);
-
-    if (!applies) {
-
-        return { applies: false, country, items: [], total: 0 };
-
-    }
+async function calculateExtraCosts() {
 
     const [biometricCost, medicalCost] = await Promise.all([
 
@@ -754,8 +733,6 @@ async function calculateExtraCosts({ application_type, country }) {
     return {
 
         applies: true,
-
-        country,
 
         items,
 
@@ -785,6 +762,11 @@ async function calculateServicesLines(selectedServices) {
 
         const label = catalogEntry ? catalogEntry.label : selected.serviceCode;
 
+        // Ver database.js#fetchServiceCatalog — usada solo por
+        // pdf.js#buildAdicionalesLabel para la fila dinámica del
+        // comparativo, nunca para el desglose (que sigue usando "label").
+        const shortLabel = catalogEntry ? catalogEntry.shortLabel : selected.serviceCode;
+
         const quantity = selected.quantity || 1;
 
         return {
@@ -792,6 +774,8 @@ async function calculateServicesLines(selectedServices) {
             serviceCode: selected.serviceCode,
 
             label,
+
+            shortLabel,
 
             quantity,
 

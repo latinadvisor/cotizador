@@ -1193,7 +1193,18 @@ async function fetchServiceCatalog() {
 
             label: row["Servicio"],
 
-            unitCost: Number(row["Precio"]) || 0
+            unitCost: Number(row["Precio"]) || 0,
+
+            /*
+                Columna opcional "Etiqueta Corta" — nombre a usar en la fila
+                dinámica "Traducciones + ..." del comparativo del PDF (ver
+                pdf.js#buildAdicionalesLabel). Si la fila no la trae (o el
+                servicio es nuevo y todavía no se configuró), cae al nombre
+                completo de "Servicio" — así un servicio nuevo SIEMPRE queda
+                mapeado automáticamente sin tocar código, y el texto corto
+                es solo un ajuste opcional de presentación.
+            */
+            shortLabel: String(row["Etiqueta Corta"] || row["Servicio"]).trim()
 
         }));
 

@@ -7,7 +7,9 @@
  telefónico internacional). Es la única fuente de verdad para:
 
    - El select "País" del estudiante (student.js), que alimenta
-     directamente pricing.js#isCountryEligibleForMedicalExams.
+     directamente resolveContinentForCountry (más abajo, usado por
+     database.js#resolveCourseRow para el fallback por continente de
+     las tarifas por nacionalidad).
    - El selector de indicativo telefónico (student.js), que es
      INDEPENDIENTE del país del estudiante (ver
      student.js#parsePhoneNumber / #findDialCodeByCountryName).

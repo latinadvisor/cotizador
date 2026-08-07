@@ -353,8 +353,6 @@ function renderComparisonTable(quote) {
 
     const hasDiscount = options.some(option => option.totals.descuento > 0);
 
-    const hasExtraCosts = !!(quote.extraCosts && quote.extraCosts.applies);
-
     const headerCells = options.map(option => `<th>${option.label}</th>`).join("");
 
     const rows = [
@@ -383,7 +381,11 @@ function renderComparisonTable(quote) {
 
         buildComparisonRow("Visa", options, option => formatCurrency(option.visa.cost, currency)),
 
-        buildComparisonRow("Adicionales", options, option => formatCurrency(option.totals.adicionales, currency))
+        // Mismo nombre dinámico que ya usa el PDF (ver
+        // pdf.js#buildAdicionalesLabel, cargado antes que este archivo —
+        // ver orden de scripts en index.html) — para que pantalla y PDF
+        // digan siempre exactamente lo mismo, sin duplicar la lógica acá.
+        buildComparisonRow(buildAdicionalesLabel(quote), options, option => formatCurrency(option.totals.adicionales, currency))
 
     ];
 
@@ -403,11 +405,10 @@ function renderComparisonTable(quote) {
 
     }
 
-    if (hasExtraCosts) {
-
-        rows.push(buildComparisonRow("Costos Extras*", options, () => formatCurrency(quote.extraCosts.total, currency)));
-
-    }
+    // Costos Extras ya NO se muestra en el resumen en pantalla (pedido
+    // explícito del cliente): nunca suma al total, así que acá no hace
+    // falta — sigue explicado en detalle en el PDF (ver
+    // pdf.js#buildExtraCostsNoteText / buildExtraCostsDesgloseNoteText).
 
     rows.push(buildComparisonRow("Total", options, option => formatCurrency(option.totals.total, currency), "comparison-row-total"));
 
@@ -431,20 +432,6 @@ function renderComparisonTable(quote) {
 
     }
 
-    const extraCostsNote = hasExtraCosts
-
-        ? `
-
-            <div class="summary-extra-note">
-
-                * Costos Extras: valores genéricos que deben pagarse directamente a cada entidad proveedora del servicio. No están incluidos en el Total.
-
-            </div>
-
-        `
-
-        : "";
-
     return `
 
         <div class="summary-section">
@@ -462,8 +449,6 @@ function renderComparisonTable(quote) {
                 </table>
 
             </div>
-
-            ${extraCostsNote}
 
         </div>
 

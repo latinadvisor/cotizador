@@ -16,12 +16,13 @@
  Con varias opciones de colegio (pestañas, ver
  pricing.js#calculateQuotation / js/course-options.js), el PDF
  final queda: portada (por la ciudad del primer curso de la
- primera opción — ver generateQuotationPdfBlob) -> página
- comparativa (assets/img/comparativo.pdf,
- una columna por opción) -> detalle completo de cada opción, en
- orden, cada una empezando de nuevo con pagina-blanca-
- cotizacion.pdf y usando pagina-extra.pdf si su contenido
- desborda una página (ver generateQuotationPdfBlob/
+ primera opción — ver generateQuotationPdfBlob) -> detalle
+ completo de cada opción, en orden, cada una empezando de nuevo
+ con pagina-blanca-cotizacion.pdf y usando pagina-extra.pdf si su
+ contenido desborda una página -> página comparativa
+ (assets/img/comparativo.pdf, una columna por opción) AL FINAL
+ (movida ahí en la tercera entrega, pedido explícito del cliente —
+ antes iba justo después de la portada; ver generateQuotationPdfBlob/
  mergeFinalPdf). El detalle de cada opción reutiliza,
  SIN CAMBIOS, buildOverlayDocDefinition — pricing.js arma para
  cada una un objeto "quote" con la forma legacy de una sola
@@ -83,7 +84,12 @@ const PDF_COLORS = {
 
     tableHeaderFill: "#f5f7fa",
 
-    warning: "#92400e"
+    warning: "#92400e",
+
+    // Mismo rojo que --danger en css/style.css (botones eliminar/alertas
+    // en pantalla) — reutilizado acá para Descuento/Beneficio, tercera
+    // entrega, en vez de inventar un tono nuevo.
+    danger: "#dc2626"
 
 };
 
@@ -328,13 +334,23 @@ function amountRow(label, amount, moneyCtx, options = {}) {
 
     const secondaryCell = formatMoneyCell(amount, moneyCtx.secondaryCurrency, moneyCtx.secondaryRate, options);
 
+    /*
+        "options.color" es un override explícito (ej. rojo para
+        Beneficio/Descuento, tercera entrega) que manda por encima del
+        color automático bold->verde de siempre — si no se pasa, el
+        comportamiento de cualquier llamado existente no cambia en nada.
+    */
+    const resolvedPrimaryColor = options.color || (options.bold ? PDF_COLORS.greenDark : PDF_COLORS.text);
+
+    const resolvedSecondaryColor = options.color || (options.bold ? PDF_COLORS.greenDark : PDF_COLORS.subtitle);
+
     return [
 
-        { text: label, fontSize: 9, bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.text, fillColor: options.fillColor },
+        { text: label, fontSize: 9, bold: !!options.bold, color: resolvedPrimaryColor, fillColor: options.fillColor },
 
-        { ...primaryCell, bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.text, fontSize: options.bold ? 12 : 9, fillColor: options.fillColor },
+        { ...primaryCell, bold: !!options.bold, color: resolvedPrimaryColor, fontSize: options.bold ? 12 : 9, fillColor: options.fillColor },
 
-        { ...secondaryCell, bold: !!options.bold, color: options.bold ? PDF_COLORS.greenDark : PDF_COLORS.subtitle, fontSize: options.bold ? 10 : 9, fillColor: options.fillColor }
+        { ...secondaryCell, bold: !!options.bold, color: resolvedSecondaryColor, fontSize: options.bold ? 10 : 9, fillColor: options.fillColor }
 
     ];
 
@@ -398,7 +414,7 @@ function buildPromotionBlock(course, moneyCtx) {
 
         rows.push(fullWidthRow(course.discountSource || "Promoción", { italics: true, margin: [0, 0, 0, 4] }));
 
-        rows.push(amountRow("Beneficio", course.discount, moneyCtx, { negative: true, fillColor: fill }));
+        rows.push(amountRow("Beneficio", course.discount, moneyCtx, { negative: true, fillColor: fill, color: PDF_COLORS.danger }));
 
         rows.push(amountRow("Precio final", course.subtotal, moneyCtx, { bold: true, fillColor: fill }));
 
@@ -492,6 +508,47 @@ function infoLine(label, value) {
 
 }
 
+/*
+    Todos los colegios DISTINTOS de la opción, separados por " / " —
+    mismo criterio que summary.js#describeOptionCities, pero para
+    Colegio. Es una función propia de pdf.js (no de summary.js) porque,
+    a partir de la tercera entrega, el PDF necesita el colegio SOLO (acá
+    y en la nueva fila "Colegio" del comparativo) mientras que la fila
+    "Programa" en pantalla sigue mostrando "Programa (Colegio)" sin
+    cambios — ver describeOptionProgramNameOnly más abajo.
+*/
+function describeOptionColleges(option) {
+
+    if (!option.courses || option.courses.length === 0) return "-";
+
+    const colleges = [...new Set(option.courses.map(course => course.college).filter(Boolean))];
+
+    return colleges.length > 0 ? colleges.join(" / ") : "-";
+
+}
+
+/*
+    Solo para el PDF (tercera entrega, pedido explícito del cliente):
+    "Estudio por" y la fila "Duración" del comparativo deben verse
+    ÚNICAMENTE en meses cerrados, redondeando a la cantidad de semanas
+    más cercana — a propósito una función PROPIA de pdf.js, distinta de
+    weeksToMonthsLabel (ui.js), que sigue mostrando "X semanas (Y meses)"
+    en pantalla (summary.js) exactamente igual que antes. Es un cambio
+    puramente visual: no toca officialWeeks/computeTotalWeeks en ningún
+    lado, solo el texto final que se imprime.
+*/
+function weeksToClosedMonthsLabel(weeks) {
+
+    const totalWeeks = Number(weeks) || 0;
+
+    if (totalWeeks <= 0) return "-";
+
+    const months = Math.max(1, Math.round(totalWeeks / 4));
+
+    return `${months} ${months === 1 ? "mes" : "meses"}`;
+
+}
+
 /*==========================================================
  CONSTRUYE EL DOCUMENTO DE CONTENIDO (se estampa sobre la
  plantilla — nunca dibuja logo, título, acento ni los cuadros
@@ -513,7 +570,7 @@ function buildOverlayDocDefinition(quote, student, advisor, optionLabel, moneyCt
 
     const estudioPorValue = quote.courses && quote.courses.length > 0
 
-        ? weeksToMonthsLabel(computeTotalWeeks(quote.courses))
+        ? weeksToClosedMonthsLabel(computeTotalWeeks(quote.courses))
 
         : "-";
 
@@ -546,6 +603,8 @@ function buildOverlayDocDefinition(quote, student, advisor, optionLabel, moneyCt
             buildCostTableSection(quote, moneyCtx),
 
             buildResumenFinancieroSection(quote, moneyCtx),
+
+            buildExtraCostsDesgloseSection(quote, moneyCtx),
 
             buildObservationsSection(quote.warnings)
 
@@ -623,7 +682,7 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
 
     const optionLabelLine = optionLabel
 
-        ? [{ text: optionLabel, style: "sectionTitle", margin: [0, 0, 0, 2] }]
+        ? [{ text: `${optionLabel}: ${describeOptionColleges({ courses: quote.courses })}`, style: "sectionTitle", margin: [0, 0, 0, 2] }]
 
         : [];
 
@@ -668,17 +727,18 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
 /*==========================================================
  DESGLOSE DE COSTOS (Concepto / AUD / USD)
  ----------------------------------------------------------
- Tres tablas con título propio en verde, en este orden fijo:
+ Dos tablas con título propio en verde, en este orden fijo:
 
    1. DESGLOSE DE COSTOS — solo lo directamente ligado al curso
       (Curso, Matrícula, Materiales), un bloque por curso.
-   2. OTROS CARGOS — Seguro médico, Visa, recargo 2da aplicación,
-      extras offshore (ej. Traducciones) y servicios opcionales
-      (SIM Card, Recogida, etc.).
-   3. COSTOS EXTRAS — SOLO exámenes médicos/biométricos, y SOLO
-      si quote.extraCosts.applies (Offshore + país autorizado,
-      ver pricing.js#calculateExtraCosts). Si no aplica, la
-      sección completa se omite.
+   2. OTROS CARGOS — Seguro médico, Visa, recargo 2da aplicación
+      ("Recargo de visa"), extras offshore (ej. Traducciones) y
+      servicios opcionales (SIM Card, Recogida, etc.).
+
+ Costos Extras (exámenes médicos/biométricos) ya NO tiene tabla
+ propia acá — ahora SIEMPRE aparece como una nota resaltada al
+ final (ver buildExtraCostsNoteText/quote.extraCosts.applies más
+ abajo, que ahora es siempre true).
 
  El descuento NUNCA aparece acá (por pedido explícito del
  cliente), solo en el Resumen Financiero, justo antes del total.
@@ -762,7 +822,7 @@ function buildCostTableSection(quote, moneyCtx) {
 
     if (quote.secondApplicationSurcharge.applies) {
 
-        otherChargeRows.push(amountRow("Recargo tercera aplicación visa", quote.secondApplicationSurcharge.totalAmount, moneyCtx));
+        otherChargeRows.push(amountRow("Recargo de visa", quote.secondApplicationSurcharge.totalAmount, moneyCtx));
 
     }
 
@@ -804,25 +864,10 @@ function buildCostTableSection(quote, moneyCtx) {
 
     ];
 
-    if (quote.extraCosts && quote.extraCosts.applies) {
-
-        const extraRows = quote.extraCosts.items.map(item => amountRow(item.label, item.amount, moneyCtx));
-
-        content.push(
-
-            { text: "COSTOS EXTRAS", style: "sectionTitle", margin: [0, 10, 0, 6] },
-
-            {
-
-                table: { headerRows: 1, widths: ["*", 90, 90], body: [header, ...extraRows] },
-
-                layout: "lightHorizontalLines"
-
-            }
-
-        );
-
-    }
+    // Costos Extras ya NO tiene tabla propia acá (pedido explícito del
+    // cliente) — la nota que la reemplaza ahora vive DESPUÉS del Resumen
+    // Financiero, no acá (ver buildExtraCostsDesgloseSection, agregada
+    // aparte en buildOverlayDocDefinition).
 
     return content;
 
@@ -857,7 +902,7 @@ function buildResumenFinancieroSection(quote, moneyCtx) {
 
     if (totals.descuento > 0) {
 
-        rows.push(amountRow("Descuento", totals.descuento, moneyCtx, { negative: true }));
+        rows.push(amountRow("Descuento", totals.descuento, moneyCtx, { negative: true, color: PDF_COLORS.danger }));
 
     }
 
@@ -874,20 +919,11 @@ function buildResumenFinancieroSection(quote, moneyCtx) {
 
     }
 
-    /*
-        "Total de Costos Extras": informativo (nunca se suma al TOTAL,
-        ver pricing.js#calculateExtraCosts), pero AHORA es una fila más
-        de esta MISMA tabla (antes era una tabla aparte con su propio
-        layout, lo que la desalineaba del resto — ver captura del
-        cliente). Sigue distinguiéndose con fondo gris, sin salirse ya
-        del cuadro ni desalinear columnas.
-    */
-
-    if (quote.extraCosts && quote.extraCosts.applies) {
-
-        rows.push(amountRow("Total de Costos Extras", quote.extraCosts.total, moneyCtx, { bold: true, fillColor: "#e8e8e8" }));
-
-    }
+    // "Total de Costos Extras" ya NO va en esta tabla (pedido explícito
+    // del cliente) — Costos Extras ahora se explica únicamente con la
+    // nota resaltada de buildExtraCostsDesgloseSection (justo DESPUÉS de
+    // este Resumen Financiero, ver buildOverlayDocDefinition), nunca con
+    // un monto acá.
 
     const content = [
 
@@ -904,6 +940,27 @@ function buildResumenFinancieroSection(quote, moneyCtx) {
     ];
 
     return content;
+
+}
+
+/*
+    Nota de Costos Extras del desglose — va DESPUÉS del Resumen
+    Financiero (pedido explícito del cliente, antes iba entre "OTROS
+    CARGOS" y "Resumen Financiero"), con su propio título "Nota:". Ver
+    buildExtraCostsDesgloseNoteText para el texto exacto (distinto según
+    Onshore/Offshore).
+*/
+function buildExtraCostsDesgloseSection(quote, moneyCtx) {
+
+    if (!quote.extraCosts || !quote.extraCosts.applies) return [];
+
+    return [
+
+        { text: "Nota:", style: "sectionTitle", margin: [0, 10, 0, 4] },
+
+        { text: buildExtraCostsDesgloseNoteText(quote, moneyCtx), bold: true, color: PDF_COLORS.text, fontSize: 9 }
+
+    ];
 
 }
 
@@ -931,11 +988,14 @@ function buildObservationsSection(warnings) {
  cliente).
 ==========================================================*/
 
-function collectNotes(quote, moneyCtx) {
+/*
+    Compartida por collectNotes (nota de vigencia de traducciones) y
+    buildAdicionalesLabel (nombre dinámico de la fila del comparativo,
+    ver más abajo) — antes vivía duplicada inline en collectNotes.
+*/
+function offshoreHasTranslationsItem(quote) {
 
-    const hasExtraCosts = !!(quote.extraCosts && quote.extraCosts.applies);
-
-    const hasOffshoreTranslations = !!(
+    return !!(
 
         quote.offshoreExtras &&
 
@@ -945,19 +1005,86 @@ function collectNotes(quote, moneyCtx) {
 
     );
 
+}
+
+/*
+    Costos Extras ahora SIEMPRE aplica (ver pricing.js#calculateExtraCosts,
+    decisión confirmada del cliente). Tiene 2 textos DISTINTOS (pedido
+    explícito del cliente, no repetir el mismo en los 2 lugares):
+
+      - buildExtraCostsNoteText: nota del comparativo (ver collectNotes) —
+        siempre el mismo texto, siempre con el total combinado
+        (biométricos + médicos), sin importar Onshore/Offshore.
+      - buildExtraCostsDesgloseNoteText: nota del desglose de cada opción
+        (ver buildExtraCostsDesgloseSection) — reemplaza la vieja tabla
+        "COSTOS EXTRAS". A diferencia de la del comparativo, esta SÍ
+        distingue por application_type (decisión confirmada del cliente:
+        Offshore normalmente requiere exámenes médicos Y datos
+        biométricos; Onshore, generalmente solo exámenes médicos):
+          - Offshore: menciona ambos, "Valor aprox." = total combinado.
+          - Onshore: menciona solo "exámenes médicos", "Valor aprox." =
+            SOLO el ítem "examen-medico" (nunca el biométrico).
+
+    Ninguna de las dos tiene fila propia en ninguna tabla — son
+    ÚNICAMENTE texto resaltado (bold + color).
+*/
+function buildExtraCostsNoteText(quote, moneyCtx) {
+
+    const extraCostsAmountText = moneyCtx.primaryRate == null
+        ? "—"
+        : formatCurrency(quote.extraCosts.total * moneyCtx.primaryRate, moneyCtx.primaryCurrency);
+
+    return `Costos extras: corresponden a exámenes médicos y biométricos. Deben ser pagados directamente a cada entidad proveedora del servicio. Estos valores a continuación son informativos y serán confirmados por el equipo de visa al momento de aplicar, ya que dependen de la nacionalidad y el historial migratorio de cada estudiante. No están incluidos en el total de la cotización. Valor aprox.: ${extraCostsAmountText}.`;
+
+}
+
+function buildExtraCostsDesgloseNoteText(quote, moneyCtx) {
+
+    const isOnshore = !!(quote.student && quote.student.application_type === "Onshore");
+
+    if (isOnshore) {
+
+        const medicalItem = (quote.extraCosts.items || []).find(item => item.code === "examen-medico");
+
+        const medicalAmount = medicalItem ? medicalItem.amount : 0;
+
+        const amountText = moneyCtx.primaryRate == null
+            ? "—"
+            : formatCurrency(medicalAmount * moneyCtx.primaryRate, moneyCtx.primaryCurrency);
+
+        return `Puede que Inmigración solicite, después de aplicar a tu visa, tomarte exámenes médicos. Esto depende de la nacionalidad y el historial migratorio de cada estudiante. Estos valores serán pagados directamente a cada entidad proveedora y serán confirmados por el equipo de visa al momento de aplicar. Valor aprox.: ${amountText}.`;
+
+    }
+
+    const extraCostsAmountText = moneyCtx.primaryRate == null
+        ? "—"
+        : formatCurrency(quote.extraCosts.total * moneyCtx.primaryRate, moneyCtx.primaryCurrency);
+
+    return `Puede que Inmigración solicite, después de aplicar a tu visa, tomarte exámenes médicos y datos biométricos. Esto depende de la nacionalidad y el historial migratorio de cada estudiante. Estos valores serán pagados directamente a cada entidad proveedora y serán confirmados por el equipo de visa al momento de aplicar. Valor aprox.: ${extraCostsAmountText}.`;
+
+}
+
+function collectNotes(quote, moneyCtx) {
+
+    const hasExtraCosts = !!(quote.extraCosts && quote.extraCosts.applies);
+
+    const hasOffshoreTranslations = offshoreHasTranslationsItem(quote);
+
     /*
         "Adicionales" (ver buildComparativoTableRows/pricing.js#assembleTotals:
         adicionales = recargo 2da aplicación + offshoreExtras.total +
         servicesSubtotal) significa cosas DISTINTAS según application_type,
         y ambos casos son mutuamente excluyentes por diseño (una
         cotización es Offshore U Onshore, nunca las dos): en Offshore
-        agrupa traducciones + servicios opcionales; en Onshore a partir
-        de la tercera aplicación (o posterior) es EXCLUSIVAMENTE el
-        recargo fijo del Gobierno. En Onshore 1ra/2da aplicación no hay
-        nada que explicar (no se muestra ninguna de las dos notas).
+        agrupa traducciones + servicios opcionales (ver
+        buildAdicionalesLabel más abajo — YA se explica solo con el
+        nombre dinámico de la fila, "Traducciones [+ SIM] [+ Transporte]",
+        así que ya no hace falta una nota aparte, tercera entrega); en
+        Onshore a partir de la tercera aplicación (o posterior) es
+        EXCLUSIVAMENTE el recargo fijo del Gobierno, que también se
+        explica solo con el nombre de la fila, "Recargo de visa" (antes
+        "Adicionales").
     */
-
-    const isOffshore = !!(quote.offshoreExtras && quote.offshoreExtras.applies);
 
     const secondApplicationSurcharge = quote.secondApplicationSurcharge;
 
@@ -975,7 +1102,15 @@ function collectNotes(quote, moneyCtx) {
 
     if (hasExtraCosts) {
 
-        notes.push("* Costos extras: corresponden a exámenes médicos y biométricos, son valores genéricos y deben ser pagados directamente a cada entidad proveedora del servicio. Estos valores son informativos y no están incluidos en el total de la cotización.");
+        notes.push({
+
+            text: buildExtraCostsNoteText(quote, moneyCtx),
+
+            bold: true,
+
+            color: PDF_COLORS.text
+
+        });
 
     }
 
@@ -991,17 +1126,13 @@ function collectNotes(quote, moneyCtx) {
 
     }
 
-    if (isOffshore) {
-
-        notes.push("El valor correspondiente al ítem \"Adicionales\" en el cuadro comparativo incluye los costos asociados a traducciones, servicios opcionales seleccionados (como recogida en el aeropuerto, SIM Card, entre otros) y cualquier traducción adicional incluida en la cotización.");
-
-    } else if (hasSecondApplicationSurcharge) {
+    if (hasSecondApplicationSurcharge) {
 
         const surchargeAmountText = moneyCtx.primaryRate == null
             ? "—"
             : formatCurrency(secondApplicationSurcharge.perApplicantAmount * moneyCtx.primaryRate, moneyCtx.primaryCurrency);
 
-        notes.push(`El valor correspondiente al ítem "Adicionales" corresponde al cargo adicional obligatorio de ${surchargeAmountText} exigido por el Gobierno a partir de la tercera aplicación, aplicable a cada una de las visas que se soliciten.`);
+        notes.push(`El valor correspondiente al ítem "Recargo de visa" corresponde al cargo adicional obligatorio de ${surchargeAmountText} exigido por el Gobierno a partir de la tercera aplicación, aplicable a cada una de las visas que se soliciten.`);
 
     }
 
@@ -1027,15 +1158,83 @@ function buildNotesSection(quote, moneyCtx) {
 
 }
 
+/*
+    Solo el nombre del programa, SIN el colegio — a diferencia de
+    summary.js#describeOptionPrograms (que sigue agrupando "Programa
+    (Colegio)" en pantalla, sin cambios). El colegio ahora tiene su
+    propia fila ("Colegio", ver describeOptionColleges) en el
+    comparativo del PDF, así que repetirlo acá sería redundante
+    (pedido explícito del cliente, tercera entrega).
+*/
+function describeOptionProgramNameOnly(option) {
+
+    if (!option.courses || option.courses.length === 0) return "-";
+
+    return option.courses.map(course => course.program || course.type || "-").join(" + ");
+
+}
+
+/*
+    Nombre de la fila "Adicionales" del comparativo — se arma en 2 partes:
+
+    1. La BASE depende de qué compone realmente ese monto (mutuamente
+       excluyente por application_type, ver pricing.js#assembleTotals):
+         - Offshore con traducciones automáticas (Costos Fijos) -> "Traducciones".
+         - Onshore desde la 3ra aplicación -> "Recargo de visa" (mismo
+           texto que la fila del desglose, ver buildCostTableSection).
+         - Ninguno de los dos (ej. Onshore 1ra/2da aplicación) -> "Adicionales",
+           el nombre de siempre.
+
+    2. Los servicios opcionales EFECTIVAMENTE seleccionados (catálogo 100%
+       dinámico, hoja "Servicios Opcionales") se agregan después con "+",
+       usando el nombre corto que trae cada fila del catálogo (columna
+       "Etiqueta Corta", con respaldo al nombre completo — ver
+       database.js#fetchServiceCatalog). Así un servicio nuevo que se
+       agregue al Excel queda mapeado automáticamente, sin tocar código.
+       Se excluye el servicio opcional "Traducciones" (traducción EXTRA,
+       distinta de la automática de Costos Fijos) SOLO cuando la base ya
+       es "Traducciones", para no repetir la palabra dos veces — en
+       "Recargo de visa" o "Adicionales" si se selecciona, se agrega
+       normal, como cualquier otro servicio.
+*/
+function buildAdicionalesLabel(quote) {
+
+    const isOffshoreTranslations = offshoreHasTranslationsItem(quote);
+
+    let base = "Adicionales";
+
+    if (isOffshoreTranslations) {
+
+        base = "Traducciones";
+
+    } else if (quote.secondApplicationSurcharge && quote.secondApplicationSurcharge.applies) {
+
+        base = "Recargo de visa";
+
+    }
+
+    const extraLabels = (quote.services || [])
+
+        .filter(service => !(isOffshoreTranslations && service.serviceCode === "traducciones"))
+
+        .map(service => service.shortLabel || service.label)
+
+        .filter(Boolean);
+
+    return [base, ...extraLabels].join(" + ");
+
+}
+
 /*==========================================================
  PÁGINA COMPARATIVA (varias opciones de colegio)
  ----------------------------------------------------------
  Se estampa sobre assets/img/comparativo.pdf. Reutiliza los
  mismos helpers de derivación de datos que la tabla comparativa
- en pantalla (js/summary.js: describeOptionPrograms,
- describeOptionCities, insuranceRowLabel)
- para que ambas tablas
- siempre muestren exactamente lo mismo. A diferencia del detalle
+ en pantalla (js/summary.js: describeOptionCities, insuranceRowLabel)
+ para que ambas tablas coincidan donde el pedido del cliente no diga
+ lo contrario — "Colegio" y "Programa" (sin colegio) son deliberadamente
+ DISTINTOS de la tabla en pantalla, ver describeOptionColleges /
+ describeOptionProgramNameOnly más arriba. A diferencia del detalle
  por opción, esta tabla muestra un solo valor por celda (la
  moneda de la cotización) — no hay columna USD, tal como lo
  pidió el cliente para el comparativo.
@@ -1056,55 +1255,67 @@ function buildComparativoTableRows(quote, moneyCtx) {
 
     const hasDiscount = options.some(option => option.totals.descuento > 0);
 
-    const hasExtraCosts = !!(quote.extraCosts && quote.extraCosts.applies);
+    const adicionalesLabel = buildAdicionalesLabel(quote);
 
     const conceptRows = [
 
+        ["Colegio", option => describeOptionColleges(option)],
+
         ["Ciudad", option => describeOptionCities(option)],
 
-        ["Programa", option => describeOptionPrograms(option)],
+        ["Programa", option => describeOptionProgramNameOnly(option)],
 
-        ["Duración", option => weeksToMonthsLabel(computeTotalWeeks(option.courses))],
+        // Solo meses cerrados en el PDF (pedido explícito del cliente,
+        // tercera entrega) — ver weeksToClosedMonthsLabel. computeTotalWeeks
+        // no cambia: el cálculo real de semanas sigue exactamente igual,
+        // esto es únicamente el texto que se imprime.
+        ["Duración", option => weeksToClosedMonthsLabel(computeTotalWeeks(option.courses))],
 
         // Matrícula/Materiales NO se muestran como filas propias en el
         // comparativo (pedido explícito del cliente) — solo su suma junto
-        // con el Curso, en "Total Programa". Siguen viéndose por separado
+        // con el Curso, en "Total del curso". Siguen viéndose por separado
         // en el desglose detallado de cada opción (buildCostTableSection
         // más abajo), que no cambia con este pedido.
         //
-        // "Total Programa" viene de option.totals (ver
-        // pricing.js#assembleTotals) — única fuente de verdad, igual que
-        // en summary.js#renderComparisonTable. "Primer Pago" NO va aquí:
-        // es la ÚLTIMA fila de la tabla, después de "TOTAL" (ver
-        // firstPaymentRow más abajo y su uso en
-        // buildComparativoOverlayDocDefinition).
-        ["Total Programa", option => fmtPrimary(option.totals.subtotalCursos)],
-
-        [insuranceRowLabel(options), option => fmtPrimary(option.insurance.cost)],
-
-        ["Visa", option => fmtPrimary(option.visa.cost)],
-
-        ["Adicionales", option => fmtPrimary(option.totals.adicionales)]
+        // "Total del curso" (antes "Total Programa") viene de option.totals
+        // (ver pricing.js#assembleTotals) — única fuente de verdad, igual
+        // que en summary.js#renderComparisonTable (que sigue diciendo
+        // "Total Programa" en pantalla, sin cambios). En verde, tercera
+        // entrega. "Primer Pago" NO va aquí: es la ÚLTIMA fila de la
+        // tabla, después de "TOTAL" (ver firstPaymentRow más abajo).
+        ["Total del curso", option => fmtPrimary(option.totals.subtotalCursos), { color: PDF_COLORS.greenDark }]
 
     ];
 
+    // Justo debajo de "Total del curso", en rojo (pedido explícito del
+    // cliente) — antes iba después de "Adicionales"/antes de Costos Extras.
     if (hasDiscount) {
 
         conceptRows.push([
 
             "Descuento",
 
-            option => option.totals.descuento > 0 ? `- ${fmtPrimary(option.totals.descuento)}` : "-"
+            option => option.totals.descuento > 0 ? `- ${fmtPrimary(option.totals.descuento)}` : "-",
+
+            { color: PDF_COLORS.danger }
 
         ]);
 
     }
 
-    if (hasExtraCosts) {
+    conceptRows.push(
 
-        conceptRows.push(["Costos Extras*", () => fmtPrimary(quote.extraCosts.total)]);
+        [insuranceRowLabel(options), option => fmtPrimary(option.insurance.cost)],
 
-    }
+        ["Visa", option => fmtPrimary(option.visa.cost)],
+
+        [adicionalesLabel, option => fmtPrimary(option.totals.adicionales)]
+
+    );
+
+    // "Costos Extras" ya NO tiene fila propia acá (pedido explícito del
+    // cliente, tercera entrega) — ver la nota correspondiente en
+    // collectNotes, con el valor incluido y resaltado.
 
     const headerRow = [
 
@@ -1114,11 +1325,11 @@ function buildComparativoTableRows(quote, moneyCtx) {
 
     ];
 
-    const bodyRows = conceptRows.map(([label, valueFn]) => [
+    const bodyRows = conceptRows.map(([label, valueFn, rowStyle = {}]) => [
 
-        { text: label, fontSize: 9, bold: true, color: PDF_COLORS.text },
+        { text: label, fontSize: 9, bold: true, color: rowStyle.color || PDF_COLORS.text },
 
-        ...options.map(option => ({ text: valueFn(option), fontSize: 9, alignment: "right" }))
+        ...options.map(option => ({ text: valueFn(option), fontSize: 9, alignment: "right", color: rowStyle.color || PDF_COLORS.text }))
 
     ]);
 
@@ -1255,7 +1466,7 @@ function buildComparativoOverlayDocDefinition(quote, student, moneyCtx) {
 
                     body: [[{
 
-                        text: "En las siguientes páginas encontrará el detalle completo de cada una de las opciones de cotización presentadas en este comparativo.",
+                        text: "En las páginas anteriores encontrará el detalle completo de cada una de las opciones de cotización presentadas en este comparativo.",
 
                         fontSize: 11,
 
@@ -1329,9 +1540,9 @@ function buildComparativoOverlayDocDefinition(quote, student, moneyCtx) {
    3. La portada, la plantilla de página principal, la
       plantilla del comparativo y la plantilla de página extra.
 
- y las fusiona con pdf-lib en el orden: portada -> comparativo
- -> detalle Opción 1 (+ overflow) -> detalle Opción 2 (+
- overflow) -> ... (ver mergeFinalPdf).
+ y las fusiona con pdf-lib en el orden: portada -> detalle Opción 1
+ (+ overflow) -> detalle Opción 2 (+ overflow) -> ... -> comparativo
+ AL FINAL (ver mergeFinalPdf).
 
  PORTADA: las plantillas están nombradas por CIUDAD
  (assets/img/Portada-{slug-de-ciudad}.pdf: sydney, melbourne,
@@ -1423,6 +1634,15 @@ function renderPdfMakeBuffer(docDefinition) {
     descargar, el PDF se genera igual, solo que sin página de
     portada — el comparativo y el detalle de cada opción (esos sí
     obligatorios) nunca se saltan.
+
+    ORDEN (tercera entrega, pedido explícito del cliente): portada ->
+    detalle Opción 1 (+ overflow) -> detalle Opción 2 (+ overflow) ->
+    ... -> comparativo AL FINAL. Antes el comparativo iba justo después
+    de la portada; el único cambio acá es CUÁNDO se llama a
+    stampOverlayOntoTemplate para el comparativo (ver más abajo) — la
+    construcción de sus bytes (comparativoTemplateDoc/comparativoOverlayDoc)
+    sigue pasando por los mismos parámetros, sin tocar buildComparativoOverlayDocDefinition
+    ni ningún cálculo.
 */
 
 async function mergeFinalPdf({ coverBytes, comparativoTemplateBytes, comparativoOverlayBytes, templateBytes, extraTemplateBytes, optionOverlayBuffers }) {
@@ -1451,12 +1671,6 @@ async function mergeFinalPdf({ coverBytes, comparativoTemplateBytes, comparativo
 
     const extraTemplateDoc = extraTemplateBytes ? await PDFDocument.load(extraTemplateBytes) : null;
 
-    const comparativoTemplateDoc = await PDFDocument.load(comparativoTemplateBytes);
-
-    const comparativoOverlayDoc = await PDFDocument.load(comparativoOverlayBytes);
-
-    await stampOverlayOntoTemplate(finalDoc, comparativoOverlayDoc, comparativoTemplateDoc, extraTemplateDoc);
-
     const templateDoc = await PDFDocument.load(templateBytes);
 
     for (const overlayBytes of optionOverlayBuffers) {
@@ -1466,6 +1680,12 @@ async function mergeFinalPdf({ coverBytes, comparativoTemplateBytes, comparativo
         await stampOverlayOntoTemplate(finalDoc, overlayDoc, templateDoc, extraTemplateDoc);
 
     }
+
+    const comparativoTemplateDoc = await PDFDocument.load(comparativoTemplateBytes);
+
+    const comparativoOverlayDoc = await PDFDocument.load(comparativoOverlayBytes);
+
+    await stampOverlayOntoTemplate(finalDoc, comparativoOverlayDoc, comparativoTemplateDoc, extraTemplateDoc);
 
     return finalDoc.save();
 
