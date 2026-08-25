@@ -208,6 +208,31 @@ const TEMPLATE_LAYOUT = {
 };
 
 /*==========================================================
+ COORDENADAS DE LA PORTADA POR ASESORA
+ (assets/img/{Asesora}.pdf — ver pdf-assets.js#ASESORA_COVER_FILES)
+ ----------------------------------------------------------
+ "Hola," viene impreso en la portada, pero el nombre del
+ estudiante NO — queda en blanco a propósito para que esta capa lo
+ complete (decisión confirmada del cliente). Medido con
+ pdfjs-dist#getTextContent sobre los 5 PDF reales (idéntico en los
+ 5 — mismo template maestro, solo cambian fotos/firma):
+
+   "Hola," -> x_pdf=200, y_pdf(baseline)=661, width=27.62,
+   página 612x792 (LETTER). Idéntico en las 5 portadas.
+
+ x del nombre = fin de "Hola," (227.62) + espacio (~6.5) = 234.
+ y_top calibrado renderizando el merge final a PNG e iterando
+ hasta alinear con la línea de "Hola," (no a ojo sobre el PDF
+ crudo — ver historial de esta sesión para el script exacto).
+==========================================================*/
+
+const COVER_LAYOUT = {
+
+    greetingName: { x: 234, y: 117 }
+
+};
+
+/*==========================================================
  COORDENADAS DE LA PLANTILLA DEL COMPARATIVO
  (assets/img/comparativo.pdf)
  ----------------------------------------------------------
@@ -441,6 +466,36 @@ function buildPromotionBlock(course, moneyCtx) {
 function resolveAsesoraName(advisor) {
 
     return (advisor && (advisor.opportunityOwner || advisor.name)) || DEFAULT_ASESORA_NAME;
+
+}
+
+/*
+    Overlay de la portada: completa "Hola, {nombre del estudiante}" —
+    ver COVER_LAYOUT más arriba. Si no hay nombre cargado todavía
+    (cotización de prueba, formulario incompleto), no se dibuja nada
+    y la portada queda como "Hola," solo, igual que hoy — nunca se
+    inventa un nombre por defecto.
+*/
+
+function buildCoverOverlayDocDefinition(studentName) {
+
+    return {
+
+        pageSize: "LETTER",
+
+        pageMargins: [0, 0, 0, 0],
+
+        content: [
+            {
+                text: studentName,
+                bold: true,
+                fontSize: 14,
+                color: PDF_COLORS.text,
+                absolutePosition: COVER_LAYOUT.greetingName
+            }
+        ]
+
+    };
 
 }
 
@@ -1590,6 +1645,8 @@ async function generateQuotationPdfBlob(quote, student, advisor, currencyPair = 
 
         coverBytes,
 
+        studentName: (student.name || "").trim(),
+
         comparativoTemplateBytes,
 
         comparativoOverlayBytes,
@@ -1640,7 +1697,7 @@ function renderPdfMakeBuffer(docDefinition) {
     ni ningún cálculo.
 */
 
-async function mergeFinalPdf({ coverBytes, comparativoTemplateBytes, comparativoOverlayBytes, templateBytes, extraTemplateBytes, optionOverlayBuffers }) {
+async function mergeFinalPdf({ coverBytes, studentName, comparativoTemplateBytes, comparativoOverlayBytes, templateBytes, extraTemplateBytes, optionOverlayBuffers }) {
 
     const { PDFDocument } = PDFLib;
 
@@ -1656,9 +1713,31 @@ async function mergeFinalPdf({ coverBytes, comparativoTemplateBytes, comparativo
 
             copiedCoverPages.forEach(page => finalDoc.addPage(page));
 
+            if (studentName && copiedCoverPages[0]) {
+
+                const coverOverlayBytes = await renderPdfMakeBuffer(buildCoverOverlayDocDefinition(studentName));
+
+                const coverOverlayDoc = await PDFDocument.load(coverOverlayBytes);
+
+                const embeddedCoverOverlay = await finalDoc.embedPage(coverOverlayDoc.getPages()[0]);
+
+                copiedCoverPages[0].drawPage(embeddedCoverOverlay, {
+
+                    x: 0,
+
+                    y: 0,
+
+                    width: copiedCoverPages[0].getWidth(),
+
+                    height: copiedCoverPages[0].getHeight()
+
+                });
+
+            }
+
         } catch (error) {
 
-            // Portada no válida: seguimos sin ella.
+            // Portada no válida, o nombre no se pudo estampar: seguimos con lo que sí se logró.
 
         }
 
