@@ -7,11 +7,12 @@
  desde assets/img/. Ninguno viene de Google Sheets ni de GHL —
  por eso vive aparte de database.js.
 
- PORTADA (página 1): un PDF de una sola página por ciudad,
- nombrado "Portada-{slug-de-ciudad}.pdf". Si la ciudad del
- curso principal no tiene portada configurada todavía,
- fetchCoverPdfBytes() retorna null — pdf.js arma el documento
- igual, solo que sin página de portada.
+ PORTADA (página 1): un PDF de una sola página POR ASESORA
+ (nunca por ciudad ni por Onshore/Offshore — decisión confirmada
+ del cliente), nombrado exactamente como en ASESORA_COVER_FILES
+ más abajo. Si la asesora asignada al lead no tiene portada
+ configurada todavía, fetchAsesoraCoverPdfBytes() retorna null —
+ pdf.js arma el documento igual, solo que sin página de portada.
 
  PLANTILLA (página 2): "pagina-blanca-cotizacion.pdf" ya trae
  el diseño completo. A diferencia de la portada, si esta no se
@@ -140,64 +141,54 @@ async function fetchComparativoTemplateBytes() {
 }
 
 /*
-    Portada ONSHORE: siempre la misma, sin importar la ciudad — a
-    diferencia de fetchCoverPdfBytes(city) (Offshore), que sigue
-    dependiendo de la ciudad principal. Ver pdf.js#generateQuotationPdfBlob.
+    PORTADA POR ASESORA — reemplaza la vieja selección por ciudad/
+    Onshore-Onshore (decisión confirmada del cliente, ver
+    pdf.js#generateQuotationPdfBlob): la portada depende ÚNICAMENTE
+    de qué asesora tiene asignado el lead en el CRM (mismo nombre
+    que ya resuelve pdf.js#resolveAsesoraName para el cuadro verde
+    "Asesora" de la página 2), sin importar ciudad ni tipo de
+    aplicación. Los nombres de archivo deben respetarse EXACTOS
+    (mayúsculas/minúsculas/espacios), tal cual quedaron en
+    assets/img/.
 */
 
-let onshoreCoverPdfBytesCache = null;
+const ASESORA_COVER_FILES = {
 
-let onshoreCoverPdfLoadingPromise = null;
+    "andrea lotero": "Andrea Lotero.pdf",
 
-async function fetchOnshoreCoverPdfBytes() {
+    "johanna gravenhorst": "Johanna Gravenhort.pdf",
 
-    if (onshoreCoverPdfBytesCache) return onshoreCoverPdfBytesCache;
+    "maria becerra": "Maria Becerra.pdf",
 
-    if (!onshoreCoverPdfLoadingPromise) {
+    "rosario orejuela": "Rosario orejuela.pdf",
 
-        onshoreCoverPdfLoadingPromise = (async () => {
+    "sandra orejuela": "sandra orejuela.pdf"
 
-            try {
+};
 
-                const response = await fetch(`${PDF_ASSETS_BASE_PATH}/portada-onshore.pdf`);
+function normalizeAsesoraKey(name) {
 
-                if (!response.ok) return null;
-
-                return new Uint8Array(await response.arrayBuffer());
-
-            } catch (error) {
-
-                return null;
-
-            }
-
-        })();
-
-    }
-
-    onshoreCoverPdfBytesCache = await onshoreCoverPdfLoadingPromise;
-
-    return onshoreCoverPdfBytesCache;
+    return stripAccents(normalize(name));
 
 }
 
-const coverPdfBytesCache = {};
+const asesoraCoverPdfBytesCache = {};
 
-async function fetchCoverPdfBytes(city) {
+async function fetchAsesoraCoverPdfBytes(asesoraName) {
 
-    const slug = slugify(city);
+    const filename = ASESORA_COVER_FILES[normalizeAsesoraKey(asesoraName)];
 
-    if (!slug) return null;
+    if (!filename) return null;
 
-    if (Object.prototype.hasOwnProperty.call(coverPdfBytesCache, slug)) return coverPdfBytesCache[slug];
+    if (Object.prototype.hasOwnProperty.call(asesoraCoverPdfBytesCache, filename)) return asesoraCoverPdfBytesCache[filename];
 
     try {
 
-        const response = await fetch(`${PDF_ASSETS_BASE_PATH}/Portada-${slug}.pdf`);
+        const response = await fetch(`${PDF_ASSETS_BASE_PATH}/${encodeURIComponent(filename)}`);
 
         if (!response.ok) {
 
-            coverPdfBytesCache[slug] = null;
+            asesoraCoverPdfBytesCache[filename] = null;
 
             return null;
 
@@ -205,13 +196,13 @@ async function fetchCoverPdfBytes(city) {
 
         const bytes = new Uint8Array(await response.arrayBuffer());
 
-        coverPdfBytesCache[slug] = bytes;
+        asesoraCoverPdfBytesCache[filename] = bytes;
 
         return bytes;
 
     } catch (error) {
 
-        coverPdfBytesCache[slug] = null;
+        asesoraCoverPdfBytesCache[filename] = null;
 
         return null;
 

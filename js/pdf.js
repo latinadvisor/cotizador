@@ -32,7 +32,7 @@
  Todas las funciones de construcción de contenido son puras
  (solo arman el docDefinition de pdfmake o listas de filas). Los
  únicos puntos que tocan red son fetchExchangeRate (fx.js) y
- fetchCoverPdfBytes / fetchPage2TemplateBytes / fetchComparativoTemplateBytes (pdf-assets.js).
+ fetchAsesoraCoverPdfBytes / fetchPage2TemplateBytes / fetchComparativoTemplateBytes (pdf-assets.js).
 
  "PROGRAMA PRINCIPAL" (por opción): con más de un curso en una
  misma opción, el bloque "Detalles del programa" de ESA opción
@@ -1544,15 +1544,12 @@ function buildComparativoOverlayDocDefinition(quote, student, moneyCtx) {
  (+ overflow) -> detalle Opción 2 (+ overflow) -> ... -> comparativo
  AL FINAL (ver mergeFinalPdf).
 
- PORTADA: las plantillas están nombradas por CIUDAD
- (assets/img/Portada-{slug-de-ciudad}.pdf: sydney, melbourne,
- brisbane), no por país/destino ("Australia", "España" — ese es
- student.destination, un valor distinto). Se usa la ciudad del
- PRIMER curso de la PRIMERA opción (mismo criterio de "programa
- principal" que ya existía antes de soportar varias pestañas) —
- en la práctica todas las opciones comparadas suelen ser
- colegios de la misma ciudad, que es justamente el punto de la
- comparación.
+ PORTADA: se elige por la ASESORA asignada al lead (decisión
+ confirmada del cliente), nunca por ciudad ni por Onshore/
+ Offshore — ver pdf-assets.js#ASESORA_COVER_FILES. Usa el mismo
+ nombre que resolveAsesoraName() ya resuelve para el cuadro verde
+ "Asesora" de la página 2, así que ambos siempre quedan
+ consistentes entre sí.
 ==========================================================*/
 
 async function generateQuotationPdfBlob(quote, student, advisor, currencyPair = { primary: "AUD", secondary: "USD" }) {
@@ -1573,15 +1570,13 @@ async function generateQuotationPdfBlob(quote, student, advisor, currencyPair = 
 
     const comparativoOverlayBytes = await renderPdfMakeBuffer(buildComparativoOverlayDocDefinition(quote, student, moneyCtx));
 
-    // Onshore: SIEMPRE la misma portada, sin importar la ciudad. Offshore
-    // mantiene la lógica existente (portada según la ciudad principal).
-    const isOnshore = student.application_type === "Onshore";
-
-    const primaryCity = options[0] && options[0].courses[0] ? options[0].courses[0].city : null;
+    // Portada por asesora asignada al lead — igual para Onshore y
+    // Offshore, sin importar la ciudad (ver pdf-assets.js#fetchAsesoraCoverPdfBytes).
+    const asesoraName = resolveAsesoraName(advisor);
 
     const [coverBytes, templateBytes, comparativoTemplateBytes, extraTemplateBytes] = await Promise.all([
 
-        isOnshore ? fetchOnshoreCoverPdfBytes() : (primaryCity ? fetchCoverPdfBytes(primaryCity) : Promise.resolve(null)),
+        fetchAsesoraCoverPdfBytes(asesoraName),
 
         fetchPage2TemplateBytes(),
 

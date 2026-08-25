@@ -815,17 +815,21 @@ async function evaluatePromotionsForCourse({ college, city, program, subtype, ty
 }
 
 /*
-    Tarifa semanal según Horario ("Valor semana Mañana/Tarde/Noche"),
-    con "Valor semana" como respaldo si el curso no tiene tarifa propia
-    para ese horario (o si no se seleccionó horario). NO es una
-    promoción — es el precio de catálogo para ese horario.
+    Tarifa semanal según Horario ("Valor semana Mañana/Tarde/Noche
+    offshore|onshore"), con "Valor semana offshore|onshore" como
+    respaldo si el curso no tiene tarifa propia para ese horario (o
+    si no se seleccionó horario). El bloque de columnas a usar
+    (I:L offshore, M:P onshore) depende del Tipo de Aplicación de la
+    cotización. NO es una promoción — es el precio de catálogo.
 */
 
-function resolveWeeklyRate(row, schedule) {
+function resolveWeeklyRate(row, schedule, applicationType) {
 
-    const scheduleRate = schedule ? (Number(row[`Valor semana ${schedule}`]) || 0) : 0;
+    const suffix = applicationType === "Onshore" ? "onshore" : "offshore";
 
-    return scheduleRate > 0 ? scheduleRate : (Number(row["Valor semana"]) || 0);
+    const scheduleRate = schedule ? (Number(row[`Valor semana ${schedule} ${suffix}`]) || 0) : 0;
+
+    return scheduleRate > 0 ? scheduleRate : (Number(row[`Valor semana ${suffix}`]) || 0);
 
 }
 
@@ -852,17 +856,7 @@ function resolveWeeklyRate(row, schedule) {
     nunca como criterio de continente/nacionalidad — por eso cada
     verificación exige primero que la celda no esté vacía.
 */
-function resolveCourseRow(cursos, { college, city, type, subtype, program, nationality, country }) {
-
-    const candidates = cursos.filter(r =>
-        normalize(r["Colegio"]) === normalize(college) &&
-        normalize(r["Ciudad"]) === normalize(city) &&
-        normalizeCourseType(r["Tipo Curso"]) === type &&
-        normalize(r["Subtipo"]) === normalize(subtype) &&
-        normalize(r["Programa"]) === normalize(program)
-    );
-
-    if (candidates.length === 0) return null;
+function resolveCourseRowByNationality(candidates, nationality, country) {
 
     const exactMatch = candidates.find(r => {
         const cell = String(r["Nacionalidad"] || "").trim();
@@ -885,6 +879,39 @@ function resolveCourseRow(cursos, { college, city, type, subtype, program, natio
     }
 
     return candidates.find(r => String(r["Nacionalidad"] || "").trim() === "") || null;
+
+}
+
+/*
+    CIUDAD: misma idea de comodín que "Nacionalidad" vacía, pero para
+    Ciudad — una fila con "Ciudad" vacía aplica a CUALQUIER campus de
+    ese Colegio (decisión confirmada del cliente: cuando el precio
+    base no varía entre campus, evita repetir la fila por cada
+    ciudad). Se prioriza la ciudad exacta: si hay al menos una fila
+    para la ciudad exacta (aunque sea solo la universal de
+    Nacionalidad), se usa esa — el comodín de Ciudad solo entra si
+    NINGUNA fila de la ciudad exacta calificó.
+*/
+function resolveCourseRow(cursos, { college, city, type, subtype, program, nationality, country }) {
+
+    const baseCandidates = cursos.filter(r =>
+        normalize(r["Colegio"]) === normalize(college) &&
+        normalizeCourseType(r["Tipo Curso"]) === type &&
+        normalize(r["Subtipo"]) === normalize(subtype) &&
+        normalize(r["Programa"]) === normalize(program)
+    );
+
+    if (baseCandidates.length === 0) return null;
+
+    const cityCandidates = baseCandidates.filter(r => normalize(r["Ciudad"]) === normalize(city));
+
+    const cityMatch = resolveCourseRowByNationality(cityCandidates, nationality, country);
+
+    if (cityMatch) return cityMatch;
+
+    const anyCityCandidates = baseCandidates.filter(r => String(r["Ciudad"] || "").trim() === "");
+
+    return resolveCourseRowByNationality(anyCityCandidates, nationality, country);
 
 }
 
@@ -928,7 +955,7 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
     const officialWeeks = type === "ELICOS" ? (Number(weeks) || 0) : (Number(row["Duración"]) || 0);
 
-    const catalogWeeklyRate = resolveWeeklyRate(row, schedule);
+    const catalogWeeklyRate = resolveWeeklyRate(row, schedule, applicationType);
 
     const catalogEnrollmentFee = Number(row["Matrícula"]) || 0;
 
