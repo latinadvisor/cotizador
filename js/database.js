@@ -116,6 +116,37 @@ function normalize(value) {
 
 }
 
+/*
+    OPCIÓN "TODOS LOS CAMPUS" (ver fetchCitiesByCollege más abajo).
+    Es un valor de UI, nunca un valor real de la columna "Ciudad" del
+    Sheet — por eso ninguna fila real puede calzar con él por accidente.
+
+    Un colegio puede mezclar filas con Ciudad específica y filas
+    comodín (Ciudad vacía) para el mismo Tipo/Subtipo/Programa (ej.
+    Greenwich College: la mayoría de sus cursos son comodín, pero
+    algunos traen precio distinto en Sydney/Melbourne/Brisbane). El
+    comodín aplica a CUALQUIER ciudad, así que las funciones de cascada
+    (fetchCourseTypesByCollegeAndCity/fetchSubtypesByCourseSelection/
+    fetchProgramsByCourseSelection) deben ofrecer, para una ciudad
+    específica, la UNIÓN de sus filas propias + las filas comodín —
+    nunca solo una de las dos. matchesCityFilter() centraliza esa
+    regla. fetchCourseDetails/resolveCourseRow ya resuelven esto solos
+    (ver resolveCourseRow) porque hacen match exacto primero y solo
+    caen al comodín si NINGUNA fila de la ciudad exacta calificó — por
+    eso no usan este helper.
+*/
+const ALL_CITIES_OPTION = "Todos los campus";
+
+function matchesCityFilter(row, city) {
+
+    const rowCity = normalize(row["Ciudad"]);
+
+    if (city === ALL_CITIES_OPTION) return rowCity === "";
+
+    return rowCity === normalize(city) || rowCity === "";
+
+}
+
 function normalizeCourseType(rawType) {
 
     const value = normalize(rawType);
@@ -363,15 +394,79 @@ async function fetchCitiesByCollege(collegeName) {
 
     const { cursos } = await loadAllSheetsData();
 
-    const cities = cursos
+    const collegeRows = cursos.filter(row => normalize(row["Colegio"]) === normalize(collegeName));
 
-        .filter(row => normalize(row["Colegio"]) === normalize(collegeName))
+    const cities = [...new Set(collegeRows.map(row => row["Ciudad"]).filter(Boolean))];
 
-        .map(row => row["Ciudad"])
+    // Si al menos una fila de este colegio trae "Ciudad" vacía, esa fila
+    // aplica a cualquier campus (ver comodín en resolveCourseRow) — se
+    // ofrece como opción explícita "Todos los campus" en vez de exigir
+    // duplicar la fila por cada ciudad habilitada.
+    const hasWildcard = collegeRows.some(row => String(row["Ciudad"] || "").trim() === "");
 
-        .filter(Boolean);
+    return hasWildcard ? [ALL_CITIES_OPTION, ...cities] : cities;
 
-    return [...new Set(cities)];
+}
+
+/*==========================================================
+ CIUDADES HABILITADAS EN EL COTIZADOR (para el campo "Ciudad
+ seleccionada por el estudiante" que aparece cuando se elige
+ "Todos los campus" — ver courses.js#toggleStudentCityField)
+ ----------------------------------------------------------
+ "Todos los campus" le dice al sistema que ese colegio/curso no
+ necesita ciudad para calcular precio (ver comodín de Ciudad
+ arriba), pero la asesora igual necesita registrar en qué ciudad
+ quiere estudiar el estudiante, para que aparezca en el PDF —
+ ese campo es un selector, no texto libre, para evitar errores
+ de tipeo ("Sidney", "Sydny", etc.).
+
+ La lista combina las ciudades australianas más relevantes
+ (decisión confirmada del cliente) con cualquier otra Ciudad que
+ ya exista en la hoja "Cursos" (de cualquier colegio) y no esté
+ en esa lista — así un colegio con una ciudad poco común nunca
+ queda fuera del selector.
+==========================================================*/
+const AUSTRALIA_ENABLED_CITIES = [
+    "Sydney", "Melbourne", "Brisbane", "Gold Coast", "Perth",
+    "Adelaide", "Canberra", "Hobart", "Darwin", "Cairns", "Sunshine Coast"
+];
+
+async function fetchAllEnabledCities() {
+
+    const { cursos } = await loadAllSheetsData();
+
+    const cities = [...AUSTRALIA_ENABLED_CITIES];
+
+    cursos.forEach(row => {
+
+        const city = String(row["Ciudad"] || "").trim();
+
+        if (!city) return;
+
+        const alreadyListed = cities.some(existing => normalize(existing) === normalize(city));
+
+        if (!alreadyListed) cities.push(city);
+
+    });
+
+    return cities;
+
+}
+
+/*
+    Ciudad a MOSTRAR en PDF/resumen/CRM para un curso: si se eligió
+    "Todos los campus", la ciudad real es la que la asesora escribió
+    aparte en "studentCity" (nunca el texto "Todos los campus", que no
+    le dice nada al estudiante) — si se eligió una ciudad puntual, esa
+    es directamente la ciudad a mostrar.
+*/
+function resolveCourseDisplayCity(course) {
+
+    if (!course) return "";
+
+    if (course.city === ALL_CITIES_OPTION) return course.studentCity || "";
+
+    return course.city || "";
 
 }
 
@@ -394,7 +489,7 @@ async function fetchCourseTypesByCollegeAndCity({ college, city }) {
 
         .filter(row =>
             normalize(row["Colegio"]) === normalize(college) &&
-            normalize(row["Ciudad"]) === normalize(city)
+            matchesCityFilter(row, city)
         )
 
         .map(row => normalizeCourseType(row["Tipo Curso"]))
@@ -419,7 +514,7 @@ async function fetchSubtypesByCourseSelection({ college, city, type }) {
 
         .filter(row =>
             normalize(row["Colegio"]) === normalize(college) &&
-            normalize(row["Ciudad"]) === normalize(city) &&
+            matchesCityFilter(row, city) &&
             normalizeCourseType(row["Tipo Curso"]) === type
         )
 
@@ -439,7 +534,7 @@ async function fetchProgramsByCourseSelection({ college, city, type, subtype }) 
 
         .filter(row =>
             normalize(row["Colegio"]) === normalize(college) &&
-            normalize(row["Ciudad"]) === normalize(city) &&
+            matchesCityFilter(row, city) &&
             normalizeCourseType(row["Tipo Curso"]) === type &&
             normalize(row["Subtipo"]) === normalize(subtype)
         )

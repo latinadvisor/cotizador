@@ -582,7 +582,9 @@ function buildQuotationLines(quote) {
 
         college: course.college,
 
-        city: course.city,
+        // Nunca el texto interno "Todos los campus" — ver
+        // database.js#resolveCourseDisplayCity.
+        city: resolveCourseDisplayCity(course),
 
         course_type: course.type,
 

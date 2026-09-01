@@ -524,7 +524,7 @@ function describeOptionCities(option) {
 
     if (!option.courses || option.courses.length === 0) return "-";
 
-    const cities = [...new Set(option.courses.map(course => course.city).filter(Boolean))];
+    const cities = [...new Set(option.courses.map(course => resolveCourseDisplayCity(course)).filter(Boolean))];
 
     return cities.length > 0 ? cities.join(" / ") : "-";
 

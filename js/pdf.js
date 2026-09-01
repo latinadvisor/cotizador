@@ -822,7 +822,9 @@ function buildCostTableSection(quote, moneyCtx) {
         // opción (una opción puede combinar varios colegios/ciudades).
         const programLabel = course.college ? `${course.program || "-"} (${course.college})` : (course.program || "-");
 
-        const programLabelWithCity = course.city ? `${programLabel} - ${course.city}` : programLabel;
+        const displayCity = resolveCourseDisplayCity(course);
+
+        const programLabelWithCity = displayCity ? `${programLabel} - ${displayCity}` : programLabel;
 
         const label = quote.courses.length > 1 ? `Curso ${index + 1} — ${programLabelWithCity}` : `Curso — ${programLabelWithCity}`;
 

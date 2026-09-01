@@ -154,6 +154,8 @@ function createCourseCard(id, optionId) {
 
             })}
 
+            ${createStudentCityField(id)}
+
             ${createSelect({
 
                 label:"Tipo de Curso",
@@ -279,6 +281,72 @@ function getCurrentApplicationType() {
 }
 
 
+
+/*==========================================================
+ CAMPO "CIUDAD SELECCIONADA POR EL ESTUDIANTE"
+ ----------------------------------------------------------
+ Oculto por defecto. Solo se muestra cuando la asesora elige
+ "Todos los campus" en el select de Ciudad (ver
+ toggleStudentCityField/handleCityChange): en ese caso "Ciudad"
+ dejó de significar "dónde estudia" (es solo la condición que le
+ dice al sistema que ese curso no varía de precio entre campus,
+ ver database.js#matchesCityFilter) y hace falta registrar aparte
+ en qué ciudad concreta quiere estudiar el estudiante, para que
+ el PDF muestre esa ciudad en vez de "Todos los campus" (ver
+ database.js#resolveCourseDisplayCity). Es un select (no texto
+ libre) para evitar errores de tipeo — las opciones salen de
+ database.js#fetchAllEnabledCities.
+==========================================================*/
+
+function createStudentCityField(id) {
+
+    return `
+
+    <div
+        class="form-group hidden"
+        id="studentCityField_${id}">
+
+        <label for="student_city_${id}">
+
+            Ciudad seleccionada por el estudiante
+
+        </label>
+
+        <select id="student_city_${id}">
+
+            <option value="">Seleccionar</option>
+
+        </select>
+
+    </div>
+
+    `;
+
+}
+
+async function toggleStudentCityField(id, city) {
+
+    const field = document.getElementById(`studentCityField_${id}`);
+
+    if (!field) return;
+
+    if (city !== ALL_CITIES_OPTION) {
+
+        field.classList.add("hidden");
+
+        document.getElementById(`student_city_${id}`).value = "";
+
+        return;
+
+    }
+
+    field.classList.remove("hidden");
+
+    const cities = await fetchAllEnabledCities();
+
+    populateSelectOptions(`student_city_${id}`, cities, "Seleccionar ciudad");
+
+}
 
 /*==========================================================
  CAMPO "HORARIO DE ESTUDIO" (Mañana/Tarde/Noche/No aplica)
@@ -631,6 +699,8 @@ async function handleCollegeChange(id) {
 
     resetSelect(`city_${id}`);
 
+    await toggleStudentCityField(id, "");
+
     resetSelect(`course_type_${id}`);
 
     resetSelect(`course_subtype_${id}`);
@@ -645,6 +715,20 @@ async function handleCollegeChange(id) {
 
     populateSelectOptions(`city_${id}`, cities);
 
+    if (cities.length === 0) {
+
+        // Este colegio no tiene NINGUNA fila cargada en "Cursos" (catálogo
+        // incompleto). Si tuviera aunque sea una fila con Ciudad vacía,
+        // fetchCitiesByCollege ya habría incluido la opción "Todos los
+        // campus" (ver database.js) y este bloque no se ejecutaría. El
+        // select de Ciudad no tendrá ninguna opción real para elegir, así
+        // que el 'change' que dispara el resto de la cascada jamás
+        // ocurriría — saltamos el paso y cargamos Tipo de Curso directo
+        // (que también quedará vacío, ya que no hay datos).
+        await loadCourseTypesForCollegeCity(id, college, "");
+
+    }
+
 }
 
 
@@ -653,11 +737,21 @@ async function handleCollegeChange(id) {
  CASCADA: CIUDAD -> TIPO DE CURSO
 ==========================================================*/
 
+async function loadCourseTypesForCollegeCity(id, college, city) {
+
+    const types = await fetchCourseTypesByCollegeAndCity({ college, city });
+
+    populateSelectOptions(`course_type_${id}`, types);
+
+}
+
 async function handleCityChange(id) {
 
     const college = document.getElementById(`college_${id}`).value;
 
     const city = document.getElementById(`city_${id}`).value;
+
+    await toggleStudentCityField(id, city);
 
     resetSelect(`course_type_${id}`);
 
@@ -669,9 +763,7 @@ async function handleCityChange(id) {
 
     if (!college || !city) return;
 
-    const types = await fetchCourseTypesByCollegeAndCity({ college, city });
-
-    populateSelectOptions(`course_type_${id}`, types);
+    await loadCourseTypesForCollegeCity(id, college, city);
 
 }
 
@@ -897,7 +989,26 @@ function getAllCoursesData(optionId) {
 
             college: document.getElementById(`college_${id}`).value,
 
+            // Puede quedar como el texto literal "Todos los campus" cuando el
+            // colegio tiene alguna fila de Cursos con Ciudad vacía (ver
+            // fetchCitiesByCollege en database.js) -- eso sigue siendo un
+            // valor "elegido" válido, no una ciudad vacía: fetchCourseDetails/
+            // resolveCourseRow lo resuelven solos contra el comodín de Ciudad
+            // vacía porque ninguna fila real puede calzar con ese texto.
             city: document.getElementById(`city_${id}`).value,
+
+            // Solo tiene valor (y solo se exige) cuando city === "Todos los
+            // campus" -- ver createStudentCityField/toggleStudentCityField
+            // más arriba. Es la ciudad real que se muestra en PDF/resumen
+            // (ver database.js#resolveCourseDisplayCity), nunca "city" en
+            // ese caso.
+            studentCity: document.getElementById(`student_city_${id}`).value,
+
+            // false solo cuando el colegio no tiene NINGUNA fila cargada en
+            // "Cursos" -- ahí el select de Ciudad nunca tiene una opción real
+            // que elegir (ver handleCollegeChange), así que no tiene sentido
+            // exigirla en collectWarnings/pricing.js.
+            cityRequired: document.getElementById(`city_${id}`).options.length > 1,
 
             type: document.getElementById(`course_type_${id}`).value,
 

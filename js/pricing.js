@@ -379,6 +379,11 @@ async function calculateCourseLine(course, nationality, country, applicationType
 
         city: course.city,
 
+        // Ciudad real del estudiante cuando city === "Todos los campus" —
+        // ver database.js#resolveCourseDisplayCity, usado por summary.js/
+        // pdf.js/app.js para mostrar la ciudad en vez del texto interno.
+        studentCity: course.studentCity,
+
         type: course.type,
 
         subtype: course.subtype,
@@ -999,7 +1004,17 @@ function collectWarnings({ courses, courseLines, insurance, visa, student }) {
 
         if (!course.college) missingFields.push("Colegio");
 
-        if (!course.city) missingFields.push("Ciudad");
+        if (course.cityRequired && !course.city) missingFields.push("Ciudad");
+
+        // "Todos los campus" es solo la condición interna que habilita el
+        // comodín de Ciudad (ver database.js#matchesCityFilter) — la ciudad
+        // real que interesa al estudiante se registra aparte y es
+        // obligatoria en ese caso (ver courses.js#toggleStudentCityField).
+        if (course.city === ALL_CITIES_OPTION && !course.studentCity) {
+
+            missingFields.push("Ciudad seleccionada por el estudiante");
+
+        }
 
         if (!course.type) missingFields.push("Tipo de Curso");
 
