@@ -137,13 +137,34 @@ function normalize(value) {
 */
 const ALL_CITIES_OPTION = "Todos los campus";
 
+/*
+    Igual que criterionMatches() (ver más abajo) pero para la columna
+    "Ciudad" de la hoja "Cursos": admite varias ciudades separadas por
+    coma en una misma celda (ej. "Sydney,Melbourne") para no tener que
+    duplicar la fila por cada ciudad donde se ofrece el mismo curso al
+    mismo precio. Una celda vacía sigue significando comodín (aplica a
+    cualquier ciudad) — eso lo maneja cada llamador comparando el
+    resultado con [] (length === 0), no esta función.
+*/
+function splitCityValues(rawValue) {
+
+    const raw = String(rawValue == null ? "" : rawValue).trim();
+
+    if (!raw) return [];
+
+    return raw.split(",").map(value => value.trim()).filter(Boolean);
+
+}
+
 function matchesCityFilter(row, city) {
 
-    const rowCity = normalize(row["Ciudad"]);
+    const cityValues = splitCityValues(row["Ciudad"]);
 
-    if (city === ALL_CITIES_OPTION) return rowCity === "";
+    if (city === ALL_CITIES_OPTION) return cityValues.length === 0;
 
-    return rowCity === normalize(city) || rowCity === "";
+    if (cityValues.length === 0) return true;
+
+    return cityValues.some(value => normalize(value) === normalize(city));
 
 }
 
@@ -396,13 +417,31 @@ async function fetchCitiesByCollege(collegeName) {
 
     const collegeRows = cursos.filter(row => normalize(row["Colegio"]) === normalize(collegeName));
 
-    const cities = [...new Set(collegeRows.map(row => row["Ciudad"]).filter(Boolean))];
+    // Una fila con Ciudad="Sydney,Melbourne" debe aportar AMBAS ciudades
+    // como opciones separadas del desplegable, no una sola opción rara
+    // con la coma incluida — ver splitCityValues().
+    const cities = [];
+    const seenCities = new Set();
+
+    collegeRows.forEach(row => {
+
+        splitCityValues(row["Ciudad"]).forEach(city => {
+
+            if (seenCities.has(city)) return;
+
+            seenCities.add(city);
+
+            cities.push(city);
+
+        });
+
+    });
 
     // Si al menos una fila de este colegio trae "Ciudad" vacía, esa fila
     // aplica a cualquier campus (ver comodín en resolveCourseRow) — se
     // ofrece como opción explícita "Todos los campus" en vez de exigir
     // duplicar la fila por cada ciudad habilitada.
-    const hasWildcard = collegeRows.some(row => String(row["Ciudad"] || "").trim() === "");
+    const hasWildcard = collegeRows.some(row => splitCityValues(row["Ciudad"]).length === 0);
 
     return hasWildcard ? [ALL_CITIES_OPTION, ...cities] : cities;
 
@@ -439,13 +478,13 @@ async function fetchAllEnabledCities() {
 
     cursos.forEach(row => {
 
-        const city = String(row["Ciudad"] || "").trim();
+        splitCityValues(row["Ciudad"]).forEach(city => {
 
-        if (!city) return;
+            const alreadyListed = cities.some(existing => normalize(existing) === normalize(city));
 
-        const alreadyListed = cities.some(existing => normalize(existing) === normalize(city));
+            if (!alreadyListed) cities.push(city);
 
-        if (!alreadyListed) cities.push(city);
+        });
 
     });
 
@@ -986,6 +1025,12 @@ function resolveCourseRowByNationality(candidates, nationality, country) {
     para la ciudad exacta (aunque sea solo la universal de
     Nacionalidad), se usa esa — el comodín de Ciudad solo entra si
     NINGUNA fila de la ciudad exacta calificó.
+
+    También admite varias ciudades separadas por coma en una misma
+    celda (ej. "Sydney,Melbourne") vía splitCityValues() — mismo precio
+    para varios campus sin duplicar la fila. "Sydney/Melbourne" (con
+    slash u otro separador) NO se reconoce: se trata como una sola
+    ciudad literal rara y no calzará con ningún campus real.
 */
 function resolveCourseRow(cursos, { college, city, type, subtype, program, nationality, country }) {
 
@@ -998,13 +1043,15 @@ function resolveCourseRow(cursos, { college, city, type, subtype, program, natio
 
     if (baseCandidates.length === 0) return null;
 
-    const cityCandidates = baseCandidates.filter(r => normalize(r["Ciudad"]) === normalize(city));
+    const cityCandidates = baseCandidates.filter(r =>
+        splitCityValues(r["Ciudad"]).some(value => normalize(value) === normalize(city))
+    );
 
     const cityMatch = resolveCourseRowByNationality(cityCandidates, nationality, country);
 
     if (cityMatch) return cityMatch;
 
-    const anyCityCandidates = baseCandidates.filter(r => String(r["Ciudad"] || "").trim() === "");
+    const anyCityCandidates = baseCandidates.filter(r => splitCityValues(r["Ciudad"]).length === 0);
 
     return resolveCourseRowByNationality(anyCityCandidates, nationality, country);
 
