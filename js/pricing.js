@@ -761,6 +761,37 @@ async function calculateServicesLines(selectedServices) {
 
     return selectedServices.map(selected => {
 
+        // "Servicio extra" (ver services.js#getSelectedServices): no tiene
+        // fila en el catálogo, la asesora escribió descripción y valor a
+        // mano. El nombre a mostrar es la descripción TAL CUAL la escribió
+        // la asesora (decisión confirmada del cliente: en el PDF debe verse
+        // solo esa descripción, sin el prefijo "Servicio extra –" ni ningún
+        // otro texto agregado) — pdf.js además omite el sufijo "(xN)" para
+        // estas líneas (ver isCustom ahí).
+        if (selected.isCustom) {
+
+            const label = selected.customLabel;
+
+            return {
+
+                serviceCode: selected.serviceCode,
+
+                label,
+
+                shortLabel: label,
+
+                quantity: 1,
+
+                unitCost: selected.customValue,
+
+                subtotal: selected.customValue,
+
+                isCustom: true
+
+            };
+
+        }
+
         const catalogEntry = catalog.find(entry => entry.code === selected.serviceCode);
 
         const unitCost = catalogEntry ? catalogEntry.unitCost : 0;

@@ -891,7 +891,12 @@ function buildCostTableSection(quote, moneyCtx) {
 
     quote.services.forEach(service => {
 
-        otherChargeRows.push(amountRow(`${service.label} (x${service.quantity})`, service.subtotal, moneyCtx));
+        // "Servicio extra" (ver pricing.js#calculateServicesLines) ya
+        // trae el nombre completo armado ("Servicio extra – {descr}") y
+        // su cantidad siempre es 1 — el sufijo "(x1)" no aporta nada ahí.
+        const rowLabel = service.isCustom ? service.label : `${service.label} (x${service.quantity})`;
+
+        otherChargeRows.push(amountRow(rowLabel, service.subtotal, moneyCtx));
 
     });
 

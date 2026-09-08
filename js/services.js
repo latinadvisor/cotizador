@@ -64,23 +64,16 @@ async function loadServiceOptions() {
 
     if (!container) return;
 
-    if (catalog.length === 0) {
+    const catalogHtml = catalog.length > 0
+        ? catalog.map(createServiceOption).join("")
+        : `<div class="placeholder">Aún no hay servicios configurados en la base de datos.</div>`;
 
-        container.innerHTML = `
-
-            <div class="placeholder">
-
-                Aún no hay servicios configurados en la base de datos.
-
-            </div>
-
-        `;
-
-        return;
-
-    }
-
-    container.innerHTML = catalog.map(createServiceOption).join("");
+    // "Servicio extra" NO viene de la base de datos (ver
+    // createCustomServiceOption más abajo) — se muestra siempre, haya
+    // o no catálogo configurado, para que la asesora pueda cobrar
+    // cualquier concepto puntual sin depender de que alguien lo agregue
+    // primero a la hoja "Servicios Opcionales".
+    container.innerHTML = catalogHtml + createCustomServiceOption();
 
     wireServiceOptionEvents();
 
@@ -129,6 +122,80 @@ function createServiceOption(service) {
 
 
 /*==========================================================
+ SERVICIO EXTRA (concepto libre, sin catálogo)
+ ----------------------------------------------------------
+ Único servicio del listado que no viene de la hoja "Servicios
+ Opcionales": la asesora escribe a mano la descripción y el valor
+ en AUD para cobrar cualquier concepto puntual (solicitud de COE,
+ courier de documentos, traducción adicional, etc.) sin necesidad
+ de agregarlo antes a la base de datos — ver getSelectedServices()
+ y pricing.js#calculateServicesLines (rama isCustom) más abajo.
+==========================================================*/
+
+const CUSTOM_SERVICE_CODE = "custom";
+
+function createCustomServiceOption() {
+
+    return `
+
+    <div
+        class="form-group service-option"
+        data-service-code="${CUSTOM_SERVICE_CODE}">
+
+        <label for="service_check_${CUSTOM_SERVICE_CODE}">
+
+            <input
+                type="checkbox"
+                class="service-checkbox"
+                id="service_check_${CUSTOM_SERVICE_CODE}">
+
+            Servicio extra
+
+        </label>
+
+    </div>
+
+    <div class="custom-service-fields manual-fields form-grid hidden" id="customServiceFields">
+
+        <div class="form-group">
+
+            <label for="custom_service_description">Descripción del servicio</label>
+
+            <input
+                type="text"
+                id="custom_service_description"
+                placeholder="Ej: Emitir COE, servicio extra del colegio">
+
+        </div>
+
+        <div class="form-group">
+
+            <label for="custom_service_value">Valor (AUD)</label>
+
+            <input
+                type="number"
+                id="custom_service_value"
+                min="0"
+                step="0.01"
+                placeholder="0.00">
+
+        </div>
+
+    </div>
+
+    `;
+
+}
+
+function toggleCustomServiceFields(show) {
+
+    const fields = document.getElementById("customServiceFields");
+
+    if (fields) fields.classList.toggle("hidden", !show);
+
+}
+
+/*==========================================================
  HABILITA/DESHABILITA LA CANTIDAD SEGÚN EL CHECKBOX
 ==========================================================*/
 
@@ -141,6 +208,14 @@ function wireServiceOptionEvents() {
             const container = checkbox.closest(".service-option");
 
             const code = container ? container.dataset.serviceCode : "";
+
+            if (code === CUSTOM_SERVICE_CODE) {
+
+                toggleCustomServiceFields(checkbox.checked);
+
+                return;
+
+            }
 
             const quantityInput = document.getElementById(`service_qty_${code}`);
 
@@ -172,6 +247,28 @@ function getSelectedServices() {
         const container = checkbox.closest(".service-option");
 
         const serviceCode = container ? container.dataset.serviceCode : "";
+
+        if (serviceCode === CUSTOM_SERVICE_CODE) {
+
+            const descriptionInput = document.getElementById("custom_service_description");
+
+            const valueInput = document.getElementById("custom_service_value");
+
+            const description = descriptionInput ? descriptionInput.value.trim() : "";
+
+            // Sin descripción no hay nada que mostrarle al cliente en el
+            // PDF — se omite en vez de agregar una fila "Servicio extra"
+            // sin identificar (mismo criterio que el Modo Manual de
+            // courses.js: un campo vacío simplemente no aplica).
+            if (!description) return;
+
+            const value = Number(valueInput ? valueInput.value : 0) || 0;
+
+            selected.push({ serviceCode, quantity: 1, isCustom: true, customLabel: description, customValue: value });
+
+            return;
+
+        }
 
         const quantityInput = document.getElementById(`service_qty_${serviceCode}`);
 
