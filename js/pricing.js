@@ -139,6 +139,8 @@ async function calculateOptionQuote(courseOption, shared) {
 
     applyInstitutionEnrollmentFeeRule(courseLines, shared.student.application_type);
 
+    await applyOnshoreFirstPaymentDeposits(courseLines, shared.student.application_type);
+
     const totalWeeks = computeTotalWeeks(courseLines);
 
     const insurance = await calculateInsurance({
@@ -335,8 +337,6 @@ async function calculateCourseLine(course, nationality, country, applicationType
 
         type: course.type,
 
-        subtype: course.subtype,
-
         program: course.program,
 
         weeks: course.weeks,
@@ -386,8 +386,6 @@ async function calculateCourseLine(course, nationality, country, applicationType
 
         type: course.type,
 
-        subtype: course.subtype,
-
         program: course.program,
 
         schedule: course.schedule,
@@ -422,9 +420,16 @@ async function calculateCourseLine(course, nationality, country, applicationType
 
         subtotal: grossSubtotal - details.discount,
 
-        // Primer depósito Onshore (Cursos!L) — ver
-        // pricing.js#calculateFirstPayment. Irrelevante para Offshore.
-        firstPaymentDeposit: details.firstPaymentDeposit,
+        // Tarifa semanal Onshore de catálogo — insumo de
+        // applyOnshoreFirstPaymentDeposits() más abajo. El depósito en sí
+        // (firstPaymentDeposit) NO se calcula aquí: depende de la
+        // Matrícula/Materiales ya netos de applyInstitutionEnrollmentFeeRule,
+        // que corre DESPUÉS de esta función — ver calculateOptionQuote.
+        onshoreWeeklyRate: details.onshoreWeeklyRate || 0,
+
+        firstPaymentDeposit: 0,
+
+        firstPaymentDepositMissing: false,
 
         // "¿Es estudiante de la institución?" (solo se pregunta/usa en
         // Onshore) — ver pricing.js#applyInstitutionEnrollmentFeeRule.
@@ -508,6 +513,62 @@ function applyInstitutionEnrollmentFeeRule(courseLines, applicationType) {
     });
 
     return courseLines;
+
+}
+
+/*==========================================================
+ 3.2 PRIMER DEPÓSITO ONSHORE (por curso, parametrizado por Colegio)
+ ----------------------------------------------------------
+ Reemplaza a la antigua columna "Primer deposito" de "Cursos". La
+ condición de cada Colegio vive en la pestaña "Primer depósito
+ Onshore" (ver database.js#fetchOnshoreDepositCondition/
+ computeOnshoreDepositBase) — aquí solo se orquesta CUÁNDO se
+ calcula: DESPUÉS de applyInstitutionEnrollmentFeeRule(), para que
+ line.enrollmentFee/line.materialsFee ya sean los valores
+ definitivos (netos de matrícula única por colegio y de cualquier
+ promoción de matrícula/materiales gratis) — exactamente los que
+ pide sumar la fórmula.
+
+ Fórmula (decisión confirmada del cliente, igual para ambos tipos
+ de condición salvo la base):
+   Depósito del curso = Base + Matrícula del curso + Materiales del curso
+   Base (Valor fijo)          = Parámetro
+   Base (Semanas de estudio)  = tarifa semanal Onshore cotizada × Parámetro
+
+ Si el Colegio no tiene fila en esa pestaña, el depósito de ese
+ curso queda en 0 y se marca firstPaymentDepositMissing=true, para
+ que collectWarnings() avise a la asesora ANTES de generar la
+ cotización — no hay respaldo silencioso a ningún valor viejo
+ (decisión confirmada del cliente: la columna "Primer deposito" de
+ Cursos ya no existe).
+
+ No hace nada para Offshore — ahí el Primer Pago sigue la fórmula
+ de calculateOffshoreFirstPayment25Plus(), sin relación con esto.
+==========================================================*/
+
+async function applyOnshoreFirstPaymentDeposits(courseLines, applicationType) {
+
+    if (applicationType !== "Onshore") return;
+
+    for (const line of courseLines) {
+
+        const condition = await fetchOnshoreDepositCondition(line.college);
+
+        if (!condition.found) {
+
+            line.firstPaymentDeposit = 0;
+
+            line.firstPaymentDepositMissing = true;
+
+            continue;
+
+        }
+
+        const base = computeOnshoreDepositBase(condition, line.onshoreWeeklyRate);
+
+        line.firstPaymentDeposit = base + line.enrollmentFee + line.materialsFee;
+
+    }
 
 }
 
@@ -899,11 +960,12 @@ function sumBySubtotal(lines) {
  summary.js/pdf.js puedan distinguir "no aplica" de "$0". Si son
  25 semanas o más, ver calculateOffshoreFirstPayment25Plus().
 
- Onshore: suma del "Primer depósito" (Cursos!L) de cada curso de
- la opción, más Visa y Seguro médico. Nunca un único depósito
- para toda la opción: cada curso busca su propio valor en la
- hoja (ver database.js#fetchCourseDetails). NUNCA cambia por
- promociones (decisión confirmada del cliente).
+ Onshore: suma del depósito ya calculado de cada curso de la
+ opción (ver applyOnshoreFirstPaymentDeposits — parametrizado por
+ Colegio en la pestaña "Primer depósito Onshore", NUNCA una columna
+ fija en Cursos), más Visa y Seguro médico. Nunca un único depósito
+ para toda la opción: cada curso tiene el suyo, calculado como
+ Base + su propia Matrícula + sus propios Materiales.
 
  En ambos casos, "Visa" es el MISMO valor ya calculado para el
  resto de la cotización (calculateVisa) MÁS el recargo desde la
@@ -1049,8 +1111,6 @@ function collectWarnings({ courses, courseLines, insurance, visa, student }) {
 
         if (!course.type) missingFields.push("Tipo de Curso");
 
-        if (!course.subtype) missingFields.push("Subtipo");
-
         if (!course.program) missingFields.push("Programa");
 
         if (!course.schedule) missingFields.push("Horario de estudio");
@@ -1082,7 +1142,24 @@ function collectWarnings({ courses, courseLines, insurance, visa, student }) {
 
                 `Curso #${index + 1}: no se encontró esa combinación exacta en la hoja "Cursos". ` +
 
-                `Verifica Colegio/Ciudad/Tipo/Subtipo/Programa.`
+                `Verifica Colegio/Ciudad/Tipo/Programa/Rango de duración.`
+
+            );
+
+        }
+
+        // Onshore, condición de Primer Depósito no configurada para este
+        // Colegio en la pestaña "Primer depósito Onshore" — ver
+        // pricing.js#applyOnshoreFirstPaymentDeposits. Se avisa ANTES de
+        // generar la cotización en vez de dejar el depósito en $0 en
+        // silencio (decisión confirmada del cliente).
+        if (line.firstPaymentDepositMissing) {
+
+            warnings.push(
+
+                `Curso #${index + 1}: falta configurar el Primer Depósito Onshore para "${line.college}" ` +
+
+                `en la pestaña "Primer depósito Onshore".`
 
             );
 

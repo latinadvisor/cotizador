@@ -7,7 +7,7 @@
  otro que se agregue después). El catálogo NUNCA se
  hardcodea: se carga dinámicamente desde database.js
  (fetchServiceCatalog(), hoja "Servicios Opcionales"), igual
- filosofía que courses.js con Colegio/Ciudad/Subtipo/Programa.
+ filosofía que courses.js con Colegio/Ciudad/Tipo/Programa.
 ==========================================================*/
 
 

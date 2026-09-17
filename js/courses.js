@@ -30,7 +30,7 @@ let courseIdCounter = 0;
  ELICOS/VET/HE es el único universo posible de valores (regla
  fija del negocio), pero cuáles de esos tres se OFRECEN para
  un colegio+ciudad específico, y todos los demás SELECT
- (Colegio, Ciudad, Subtipo, Programa), se consultan siempre a
+ (Colegio, Ciudad, Programa), se consultan siempre a
  database.js — el único módulo que habla con Google Sheets.
 ==========================================================*/
 
@@ -161,16 +161,6 @@ function createCourseCard(id, optionId) {
                 label:"Tipo de Curso",
 
                 id:`course_type_${id}`,
-
-                options:["Seleccionar"]
-
-            })}
-
-            ${createSelect({
-
-                label:"Subtipo",
-
-                id:`course_subtype_${id}`,
 
                 options:["Seleccionar"]
 
@@ -445,7 +435,7 @@ function createWeeksField(id) {
  los valores aquí ingresados tienen prioridad sobre los del
  curso seleccionado SOLO para precio/matrícula/materiales/
  semanas — ver pricing.js#calculateCourseLine. El resto de la
- información del curso (colegio, tipo, subtipo, programa,
+ información del curso (colegio, tipo, programa,
  descuentos, etc.) sigue viniendo de la base de datos sin
  cambios.
 ==========================================================*/
@@ -597,8 +587,6 @@ async function handleDestinationChange() {
 
         resetSelect(`course_type_${id}`);
 
-        resetSelect(`course_subtype_${id}`);
-
         resetSelect(`program_${id}`);
 
         toggleWeeksField(id, "");
@@ -636,12 +624,6 @@ function attachCourseCardEvents(id) {
         .getElementById(`course_type_${id}`)
 
         .addEventListener("change", () => handleCourseTypeChange(id));
-
-    document
-
-        .getElementById(`course_subtype_${id}`)
-
-        .addEventListener("change", () => handleSubtypeChange(id));
 
 }
 
@@ -703,8 +685,6 @@ async function handleCollegeChange(id) {
 
     resetSelect(`course_type_${id}`);
 
-    resetSelect(`course_subtype_${id}`);
-
     resetSelect(`program_${id}`);
 
     toggleWeeksField(id, "");
@@ -755,8 +735,6 @@ async function handleCityChange(id) {
 
     resetSelect(`course_type_${id}`);
 
-    resetSelect(`course_subtype_${id}`);
-
     resetSelect(`program_${id}`);
 
     toggleWeeksField(id, "");
@@ -770,8 +748,13 @@ async function handleCityChange(id) {
 
 
 /*==========================================================
- CASCADA: TIPO -> SUBTIPO -> PROGRAMA
+ CASCADA: TIPO -> PROGRAMA
  Y VISIBILIDAD DE DURACIÓN (SOLO ELICOS)
+ ----------------------------------------------------------
+ Hasta la eliminación de "Subtipo" (decisión confirmada del
+ cliente — ver database.js#fetchProgramsByCourseSelection), este
+ paso pasaba por un nivel intermedio Subtipo antes de llegar a
+ Programa. Ahora Programa se deriva directo de Colegio+Ciudad+Tipo.
 ==========================================================*/
 
 async function handleCourseTypeChange(id) {
@@ -784,33 +767,11 @@ async function handleCourseTypeChange(id) {
 
     toggleWeeksField(id, type);
 
-    resetSelect(`course_subtype_${id}`);
-
     resetSelect(`program_${id}`);
 
     if (!type) return;
 
-    const subtypes = await fetchSubtypesByCourseSelection({ college, city, type });
-
-    populateSelectOptions(`course_subtype_${id}`, subtypes);
-
-}
-
-async function handleSubtypeChange(id) {
-
-    const college = document.getElementById(`college_${id}`).value;
-
-    const city = document.getElementById(`city_${id}`).value;
-
-    const type = document.getElementById(`course_type_${id}`).value;
-
-    const subtype = document.getElementById(`course_subtype_${id}`).value;
-
-    resetSelect(`program_${id}`);
-
-    if (!type || !subtype) return;
-
-    const programs = await fetchProgramsByCourseSelection({ college, city, type, subtype });
+    const programs = await fetchProgramsByCourseSelection({ college, city, type });
 
     populateSelectOptions(`program_${id}`, programs);
 
@@ -1011,8 +972,6 @@ function getAllCoursesData(optionId) {
             cityRequired: document.getElementById(`city_${id}`).options.length > 1,
 
             type: document.getElementById(`course_type_${id}`).value,
-
-            subtype: document.getElementById(`course_subtype_${id}`).value,
 
             program: document.getElementById(`program_${id}`).value,
 

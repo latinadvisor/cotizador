@@ -24,9 +24,9 @@
  total hoy). Con ese volumen:
 
    - Consultar Sheets en cada paso de la cascada (Colegio->
-     Ciudad->Tipo->Subtipo->Programa) sería lento e
-     innecesario: el asesor vería un pequeño delay en cada
-     select, siete veces por cotización.
+     Ciudad->Tipo->Programa) sería lento e innecesario: el
+     asesor vería un pequeño delay en cada select, varias
+     veces por cotización.
    - Un caché parcial (por hoja, con TTLs distintos) agrega
      complejidad que esta escala de datos no justifica.
 
@@ -90,7 +90,9 @@ const SHEET_TABS = {
 
     PROMOCIONES: 909448251,
 
-    PARAMETROS: 916827119
+    PARAMETROS: 916827119,
+
+    PRIMER_DEPOSITO_ONSHORE: 447913787
 
 };
 
@@ -122,12 +124,12 @@ function normalize(value) {
     Sheet — por eso ninguna fila real puede calzar con él por accidente.
 
     Un colegio puede mezclar filas con Ciudad específica y filas
-    comodín (Ciudad vacía) para el mismo Tipo/Subtipo/Programa (ej.
+    comodín (Ciudad vacía) para el mismo Tipo/Programa (ej.
     Greenwich College: la mayoría de sus cursos son comodín, pero
     algunos traen precio distinto en Sydney/Melbourne/Brisbane). El
     comodín aplica a CUALQUIER ciudad, así que las funciones de cascada
-    (fetchCourseTypesByCollegeAndCity/fetchSubtypesByCourseSelection/
-    fetchProgramsByCourseSelection) deben ofrecer, para una ciudad
+    (fetchCourseTypesByCollegeAndCity/fetchProgramsByCourseSelection)
+    deben ofrecer, para una ciudad
     específica, la UNIÓN de sus filas propias + las filas comodín —
     nunca solo una de las dos. matchesCityFilter() centraliza esa
     regla. fetchCourseDetails/resolveCourseRow ya resuelven esto solos
@@ -310,7 +312,7 @@ async function loadAllSheetsData(forceRefresh = false) {
 
     sheetsCacheLoadingPromise = (async () => {
 
-        const [colegios, cursos, visas, seguros, costosFijos, serviciosOpcionales, promociones, parametrosRows] = await Promise.all([
+        const [colegios, cursos, visas, seguros, costosFijos, serviciosOpcionales, promociones, parametrosRows, primerDepositoOnshore] = await Promise.all([
 
             fetchSheetTab(SHEET_TABS.COLEGIOS),
 
@@ -326,7 +328,9 @@ async function loadAllSheetsData(forceRefresh = false) {
 
             fetchSheetTab(SHEET_TABS.PROMOCIONES),
 
-            fetchSheetTab(SHEET_TABS.PARAMETROS, { forceStringColumns: true })
+            fetchSheetTab(SHEET_TABS.PARAMETROS, { forceStringColumns: true }),
+
+            fetchSheetTab(SHEET_TABS.PRIMER_DEPOSITO_ONSHORE)
 
         ]);
 
@@ -340,7 +344,7 @@ async function loadAllSheetsData(forceRefresh = false) {
 
         });
 
-        sheetsCache = { colegios, cursos, visas, seguros, costosFijos, serviciosOpcionales, promociones, parametros };
+        sheetsCache = { colegios, cursos, visas, seguros, costosFijos, serviciosOpcionales, promociones, parametros, primerDepositoOnshore };
 
         return sheetsCache;
 
@@ -542,30 +546,18 @@ async function fetchCourseTypesByCollegeAndCity({ college, city }) {
 
 
 /*==========================================================
- SUBTIPOS Y PROGRAMAS (cascada completa)
+ PROGRAMAS (cascada completa)
+ ----------------------------------------------------------
+ Hasta la v-Subtipo, este paso pasaba por un nivel intermedio
+ "Subtipo" (Colegio+Ciudad+Tipo -> Subtipo -> Programa). Se
+ eliminó (decisión confirmada del cliente): la columna "Subtipo"
+ ya no existe en "Cursos" — ahora Programa se deriva directo de
+ Colegio+Ciudad+Tipo. En colegios con muchos programas bajo un
+ mismo Tipo (ej. SBTA VET) el desplegable de Programa queda más
+ largo que antes; es un cambio de UX aceptado, no un bug.
 ==========================================================*/
 
-async function fetchSubtypesByCourseSelection({ college, city, type }) {
-
-    const { cursos } = await loadAllSheetsData();
-
-    const subtypes = cursos
-
-        .filter(row =>
-            normalize(row["Colegio"]) === normalize(college) &&
-            matchesCityFilter(row, city) &&
-            normalizeCourseType(row["Tipo Curso"]) === type
-        )
-
-        .map(row => row["Subtipo"])
-
-        .filter(Boolean);
-
-    return [...new Set(subtypes)];
-
-}
-
-async function fetchProgramsByCourseSelection({ college, city, type, subtype }) {
+async function fetchProgramsByCourseSelection({ college, city, type }) {
 
     const { cursos } = await loadAllSheetsData();
 
@@ -574,8 +566,7 @@ async function fetchProgramsByCourseSelection({ college, city, type, subtype }) 
         .filter(row =>
             normalize(row["Colegio"]) === normalize(college) &&
             matchesCityFilter(row, city) &&
-            normalizeCourseType(row["Tipo Curso"]) === type &&
-            normalize(row["Subtipo"]) === normalize(subtype)
+            normalizeCourseType(row["Tipo Curso"]) === type
         )
 
         .map(row => row["Programa"])
@@ -973,8 +964,8 @@ function resolveWeeklyRate(row, schedule, applicationType) {
     Reemplaza el enfoque de una pestaña "Tarifas Especiales" separada
     (nunca llegó a programarse — quedó solo como CSV de ejemplo,
     descartado) por una columna dentro de la propia hoja "Cursos": ahora
-    puede haber VARIAS filas para el mismo Colegio+Ciudad+Tipo+Subtipo+
-    Programa, una por nacionalidad/continente, y se resuelve por
+    puede haber VARIAS filas para el mismo Colegio+Ciudad+Tipo+
+    Programa+Rango de duración, una por nacionalidad/continente, y se resuelve por
     prioridad, deteniéndose en la primera coincidencia válida (decisión
     confirmada del cliente):
 
@@ -1017,6 +1008,61 @@ function resolveCourseRowByNationality(candidates, nationality, country) {
 }
 
 /*
+    RANGO DE DURACIÓN ("Semanas desde"/"Semanas hasta" de "Cursos"):
+    reemplaza a la antigua columna "Subtipo" para el caso real que
+    representaba (colegios que cobran distinto según cuántas semanas
+    contrata el estudiante, ej. Greenwich 1-10/11-20/21+ semanas).
+
+    Mismo principio de comodín que Ciudad/Nacionalidad: una fila SIN
+    rango (ambas columnas vacías) aplica a CUALQUIER duración. Si
+    existen filas con rango específico Y una fila comodín para el
+    mismo Colegio+Tipo+Programa, se prioriza el rango específico que
+    sí cubra las semanas cotizadas; el comodín solo entra si NINGUNA
+    fila con rango específico cubre esas semanas (Opción A, decisión
+    confirmada del cliente) — igual patrón que ya usa Ciudad más abajo.
+
+    Solo tiene efecto real en ELICOS (única modalidad donde la
+    asesora elige la semana; en VET/HE la duración sale fija de la
+    fila vía "Duración" y nadie llena este rango ahí).
+*/
+function hasSpecificDurationRange(row) {
+
+    const from = row["Semanas desde"];
+
+    const to = row["Semanas hasta"];
+
+    return (from !== "" && from !== null && from !== undefined) ||
+        (to !== "" && to !== null && to !== undefined);
+
+}
+
+function matchesDurationRange(row, weeks) {
+
+    const from = row["Semanas desde"];
+
+    const to = row["Semanas hasta"];
+
+    const numericWeeks = Number(weeks) || 0;
+
+    if (from !== "" && from !== null && from !== undefined && numericWeeks < Number(from)) return false;
+
+    if (to !== "" && to !== null && to !== undefined && numericWeeks > Number(to)) return false;
+
+    return true;
+
+}
+
+function filterByDurationRange(candidates, weeks) {
+
+    const specific = candidates.filter(r => hasSpecificDurationRange(r) && matchesDurationRange(r, weeks));
+
+    if (specific.length > 0) return specific;
+
+    return candidates.filter(r => !hasSpecificDurationRange(r));
+
+}
+
+/*
     CIUDAD: misma idea de comodín que "Nacionalidad" vacía, pero para
     Ciudad — una fila con "Ciudad" vacía aplica a CUALQUIER campus de
     ese Colegio (decisión confirmada del cliente: cuando el precio
@@ -1032,12 +1078,11 @@ function resolveCourseRowByNationality(candidates, nationality, country) {
     slash u otro separador) NO se reconoce: se trata como una sola
     ciudad literal rara y no calzará con ningún campus real.
 */
-function resolveCourseRow(cursos, { college, city, type, subtype, program, nationality, country }) {
+function resolveCourseRow(cursos, { college, city, type, program, nationality, country, weeks }) {
 
     const baseCandidates = cursos.filter(r =>
         normalize(r["Colegio"]) === normalize(college) &&
         normalizeCourseType(r["Tipo Curso"]) === type &&
-        normalize(r["Subtipo"]) === normalize(subtype) &&
         normalize(r["Programa"]) === normalize(program)
     );
 
@@ -1047,13 +1092,17 @@ function resolveCourseRow(cursos, { college, city, type, subtype, program, natio
         splitCityValues(r["Ciudad"]).some(value => normalize(value) === normalize(city))
     );
 
-    const cityMatch = resolveCourseRowByNationality(cityCandidates, nationality, country);
+    const durationCandidates = filterByDurationRange(cityCandidates, weeks);
+
+    const cityMatch = resolveCourseRowByNationality(durationCandidates, nationality, country);
 
     if (cityMatch) return cityMatch;
 
     const anyCityCandidates = baseCandidates.filter(r => splitCityValues(r["Ciudad"]).length === 0);
 
-    return resolveCourseRowByNationality(anyCityCandidates, nationality, country);
+    const anyCityDurationCandidates = filterByDurationRange(anyCityCandidates, weeks);
+
+    return resolveCourseRowByNationality(anyCityDurationCandidates, nationality, country);
 
 }
 
@@ -1061,7 +1110,7 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
     const { cursos } = await loadAllSheetsData();
 
-    const row = resolveCourseRow(cursos, { college, city, type, subtype, program, nationality, country });
+    const row = resolveCourseRow(cursos, { college, city, type, program, nationality, country, weeks });
 
     if (!row) {
 
@@ -1089,7 +1138,7 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
             materialsFeeWaivedAmount: 0,
 
-            firstPaymentDeposit: 0
+            onshoreWeeklyRate: 0
 
         };
 
@@ -1101,7 +1150,22 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
     const catalogEnrollmentFee = Number(row["Matrícula"]) || 0;
 
-    const catalogMaterialsFee = Number(row["Materiales"]) || 0;
+    /*
+        MATERIALES: "Indicador de Materiales" (Cursos) decide si la celda
+        "Materiales" es un valor plano (una sola vez, como siempre fue) o
+        un valor POR SEMANA que hay que multiplicar por la duración del
+        curso (decisión confirmada del cliente, para colegios que de
+        verdad cobran materiales semana a semana). Cualquier valor que no
+        sea exactamente "Por semana" (vacío, "Valor Fijo", un typo, una
+        fila vieja sin este indicador) se trata como plano — es el
+        comportamiento de SIEMPRE, para no romper filas ya cargadas que
+        aún no fueron migradas a este indicador.
+    */
+    const materialsRaw = Number(row["Materiales"]) || 0;
+
+    const isMaterialsPerWeek = normalize(row["Indicador de Materiales"]) === normalize("Por semana");
+
+    const catalogMaterialsFee = isMaterialsPerWeek ? materialsRaw * officialWeeks : materialsRaw;
 
     const catalogPrice = catalogWeeklyRate * officialWeeks;
 
@@ -1225,12 +1289,69 @@ async function fetchCourseDetails({ college, city, type, subtype, program, weeks
 
         materialsFeeWaivedAmount,
 
-        // Primer depósito Onshore (Cursos!L, columna "Primer deposito") —
-        // NUNCA cambia por promociones (decisión confirmada del cliente),
-        // ver pricing.js#calculateFirstPayment.
-        firstPaymentDeposit: Number(row["Primer deposito"]) || 0
+        // Tarifa semanal Onshore de catálogo (sin promoción) — insumo de
+        // la fórmula "semanas de estudio" del Primer Depósito Onshore
+        // parametrizado (ver fetchOnshoreDepositCondition/
+        // computeOnshoreDepositBase más abajo y
+        // pricing.js#applyOnshoreFirstPaymentDeposits). Irrelevante para
+        // Offshore, donde el Primer Pago no depende de esto.
+        onshoreWeeklyRate: applicationType === "Onshore" ? catalogWeeklyRate : 0
 
     };
+
+}
+
+/*==========================================================
+ PRIMER DEPÓSITO ONSHORE (pestaña "Primer depósito Onshore")
+ ----------------------------------------------------------
+ Reemplaza a la antigua columna "Primer deposito" de "Cursos"
+ (eliminada) — ahora la condición vive UNA vez por Colegio en su
+ propia pestaña (Colegio, Tipo de condición, Parámetro), para
+ poder ajustarla sin tocar código. Solo aplica a Onshore.
+
+ Tipos de condición soportados hoy (ver
+ pricing.js#applyOnshoreFirstPaymentDeposits para dónde se usa):
+   - "Valor fijo": el Parámetro ES el depósito base en AUD.
+   - "Semanas de estudio": el Parámetro es un número de semanas;
+     el depósito base = tarifa semanal Onshore cotizada × ese
+     número (sin tope — se usa el parámetro completo siempre,
+     decisión confirmada del cliente).
+
+ En ambos casos, al depósito base se le suma la Matrícula y los
+ Materiales YA RESUELTOS de ese curso (netos de la regla de
+ matrícula única por colegio y de cualquier promoción de
+ matrícula/materiales gratis) — por eso este cálculo no puede
+ vivir aquí mismo: tiene que ejecutarse en pricing.js DESPUÉS de
+ applyInstitutionEnrollmentFeeRule(), cuando esos valores ya son
+ definitivos.
+*/
+async function fetchOnshoreDepositCondition(college) {
+
+    const { primerDepositoOnshore } = await loadAllSheetsData();
+
+    const row = primerDepositoOnshore.find(r => normalize(r["Colegio"]) === normalize(college));
+
+    if (!row) return { found: false, tipo: "", parametro: 0 };
+
+    return {
+
+        found: true,
+
+        tipo: normalize(row["Tipo de condición"]),
+
+        parametro: Number(row["Parámetro"]) || 0
+
+    };
+
+}
+
+function computeOnshoreDepositBase(condition, onshoreWeeklyRate) {
+
+    if (condition.tipo === normalize("Valor fijo")) return condition.parametro;
+
+    if (condition.tipo === normalize("Semanas de estudio")) return onshoreWeeklyRate * condition.parametro;
+
+    return 0;
 
 }
 

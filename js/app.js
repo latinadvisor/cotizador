@@ -588,8 +588,6 @@ function buildQuotationLines(quote) {
 
         course_type: course.type,
 
-        course_subtype: course.subtype,
-
         program: course.program,
 
         weeks: course.officialWeeks || course.requestedWeeks || 0,
