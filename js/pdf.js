@@ -385,8 +385,14 @@ function amountRow(label, amount, moneyCtx, options = {}) {
  BLOQUE "PROMOCIÓN APLICADA"
  ----------------------------------------------------------
  Uno por curso con descuento > 0 y/o bonusNotes (ver
- database.js#fetchCourseDetails / evaluatePromotionsForCourse).
- Dos partes independientes:
+ database.js#fetchCourseDetails / buildCourseDiscountEffect). Dónde se
+ ubica (ver buildCostTableSection): el de Seguro Gratis/Visa Gratis
+ (course.waiveInsurance/waiveVisa) va DESPUÉS de la tabla "OTROS
+ CARGOS" — ahí es donde se ve el beneficio real (Seguro médico/Visa
+ en $0) — mientras que cualquier otro indicador se queda junto al
+ curso, antes de "OTROS CARGOS" (pedido explícito del cliente,
+ 2026-10-05). El contenido de este bloque en sí no cambia según
+ dónde se inserte. Dos partes independientes:
 
    - Descuento real (course.discount > 0): descripción de la
      promoción + Beneficio + Precio final (course.subtotal, única
@@ -394,6 +400,15 @@ function amountRow(label, amount, moneyCtx, options = {}) {
      "Precio original" se quitó (pedido explícito del cliente,
      rediseño visual) — el desglose de arriba ya lo muestra como
      "Total Programa".
+
+     course.discountMergeLabel (Matrícula/Materiales Gratis y
+     Descuento%, ver database.js#buildCourseDiscountEffect) funde la
+     línea italic de descripción con la fila en rojo: el texto de
+     course.discountSource pasa a ser directamente la etiqueta de esa
+     fila ("Beneficio materiales gratis" en vez de "Beneficio" fijo),
+     sin la línea aparte duplicada arriba — pedido explícito del
+     cliente, 2026-10-05. Resta Semana/Valor Semana NO traen esta
+     bandera (quedan con el layout viejo, sin cambios).
    - Bonos informativos (course.bonusNotes, ej. SEMANAS_GRATIS):
      solo texto, sin cifras — NUNCA afectan precio/subtotal
      (decisión confirmada del cliente, caso "Aussie English
@@ -423,8 +438,12 @@ function buildPromotionBlock(course, moneyCtx) {
 
     const fill = "#f4f9ec";
 
+    // Rojo por default (pedido explícito del cliente, 2026-10-05: todo el
+    // texto bajo "Promoción aplicada" debe resaltar en rojo como
+    // promoción) — el título es la única llamada que lo pisa a verde vía
+    // options.color.
     const fullWidthRow = (text, options = {}) => [
-        { text, fontSize: 9, color: PDF_COLORS.text, fillColor: fill, colSpan: 3, ...options },
+        { text, fontSize: 9, color: PDF_COLORS.danger, fillColor: fill, colSpan: 3, ...options },
         {},
         {}
     ];
@@ -437,9 +456,15 @@ function buildPromotionBlock(course, moneyCtx) {
 
     if (hasDiscount) {
 
-        rows.push(fullWidthRow(course.discountSource || "Promoción", { italics: true, margin: [0, 0, 0, 4] }));
+        if (!course.discountMergeLabel) {
 
-        rows.push(amountRow("Beneficio", course.discount, moneyCtx, { negative: true, fillColor: fill, color: PDF_COLORS.danger }));
+            rows.push(fullWidthRow(course.discountSource || "Promoción", { italics: true, margin: [0, 0, 0, 4] }));
+
+        }
+
+        const benefitLabel = course.discountMergeLabel ? (course.discountSource || "Beneficio") : "Beneficio";
+
+        rows.push(amountRow(benefitLabel, course.discount, moneyCtx, { negative: true, fillColor: fill, color: PDF_COLORS.danger }));
 
         rows.push(amountRow("Precio final", course.subtotal, moneyCtx, { bold: true, fillColor: fill }));
 
@@ -815,6 +840,15 @@ function buildCostTableSection(quote, moneyCtx) {
 
     const promotionBlocks = [];
 
+    // Seguro Gratis/Visa Gratis (ver database.js#buildCourseDiscountEffect)
+    // no tocan el precio del curso — su beneficio real se ve en la tabla
+    // OTROS CARGOS (Seguro médico/Visa en $0), así que su nota va DESPUÉS
+    // de esa tabla, no junto al curso — pedido explícito del cliente,
+    // 2026-10-05. Cualquier otro indicador (Matrícula/Materiales Gratis,
+    // Descuento%, Suma/Resta/Valor Semana) sigue en su posición de
+    // siempre, junto al curso.
+    const otrosCargosPromotionBlocks = [];
+
     (quote.courses || []).forEach((course, index) => {
 
         // Formato: "[Programa] ([Institución]) - [Ciudad]" — cada curso
@@ -853,7 +887,17 @@ function buildCostTableSection(quote, moneyCtx) {
 
         if (course.discount > 0 || (course.bonusNotes && course.bonusNotes.length > 0)) {
 
-            promotionBlocks.push(buildPromotionBlock(course, moneyCtx));
+            const block = buildPromotionBlock(course, moneyCtx);
+
+            if (course.waiveInsurance || course.waiveVisa) {
+
+                otrosCargosPromotionBlocks.push(block);
+
+            } else {
+
+                promotionBlocks.push(block);
+
+            }
 
         }
 
@@ -922,7 +966,9 @@ function buildCostTableSection(quote, moneyCtx) {
 
             layout: "lightHorizontalLines"
 
-        }
+        },
+
+        ...otrosCargosPromotionBlocks
 
     ];
 

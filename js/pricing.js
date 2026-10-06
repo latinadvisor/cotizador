@@ -18,10 +18,10 @@
    - El precio de un curso es Valor semana × Duración oficial
      (nunca la columna "Total" de la hoja, que es una caché
      manual que podría quedar desactualizada).
-   - El descuento de un curso viene de la columna "Promoción"
-     de la propia hoja "Cursos" cuando está presente (aunque
-     sea 0); solo se consulta la hoja "Promociones" como
-     respaldo si esa celda está vacía.
+   - El descuento de un curso viene de las columnas "Indicador de
+     descuento"/"valor descuento" de la propia fila de "Cursos"
+     (ver database.js#buildCourseDiscountEffect) — ya no existe una
+     hoja "Promociones" separada.
    - El seguro médico se busca por coincidencia EXACTA de
      semanas en la hoja "Seguros" — no se redondea ni se
      extrapola: la hoja debe tener una fila por cada duración
@@ -135,7 +135,17 @@ async function calculateQuotation() {
 
 async function calculateOptionQuote(courseOption, shared) {
 
-    const courseLines = await calculateAllCourseLines(courseOption.courses, shared.student.nationality, shared.student.country, shared.student.application_type);
+    /*
+        El país de búsqueda NO es shared.student.country (residencia,
+        viene de GHL) sino el país derivado del gentilicio elegido en el
+        formulario (shared.student.nationality) — ver
+        countries.js#resolveNationalitySearchCountry. Residencia y
+        nacionalidad pueden diferir (ej. reside en Colombia, nacionalidad
+        española); solo cae a residencia cuando el gentilicio es "Otra".
+    */
+    const nationalitySearchCountry = resolveNationalitySearchCountry(shared.student.nationality, shared.student.country);
+
+    const courseLines = await calculateAllCourseLines(courseOption.courses, nationalitySearchCountry, shared.student.application_type);
 
     applyInstitutionEnrollmentFeeRule(courseLines, shared.student.application_type);
 
@@ -162,6 +172,14 @@ async function calculateOptionQuote(courseOption, shared) {
         numberApplicants: shared.student.number_applicants
 
     });
+
+    // "Seguro Gratis"/"Visa Gratis" (ver database.js#buildCourseDiscountEffect):
+    // basta con que UN curso de la opción lo traiga para que ese costo
+    // quede en $0 para TODA la opción — Seguro/Visa son costos únicos por
+    // opción, no por curso, así que no tiene sentido "ser gratis a medias".
+    if (courseLines.some(line => line.waiveInsurance)) insurance.cost = 0;
+
+    if (courseLines.some(line => line.waiveVisa)) visa.cost = 0;
 
     const promotionsApplied = collectPromotionsApplied(courseLines);
 
@@ -325,7 +343,7 @@ function parseManualOverrideValue(rawValue) {
 
 }
 
-async function calculateCourseLine(course, nationality, country, applicationType) {
+async function calculateCourseLine(course, country, applicationType) {
 
     const requestedWeeks = Number(course.weeks) || 0;
 
@@ -342,8 +360,6 @@ async function calculateCourseLine(course, nationality, country, applicationType
         weeks: course.weeks,
 
         schedule: course.schedule,
-
-        nationality,
 
         country,
 
@@ -396,6 +412,12 @@ async function calculateCourseLine(course, nationality, country, applicationType
 
         found: details.found,
 
+        // Ver database.js#fetchCourseDetails y pricing.js#collectWarnings
+        // más abajo — si la asesora ya puso un precio manual (modo
+        // Manual), ese precio manda y no importa que falte tarifa de
+        // catálogo, así que el aviso se omite en ese caso.
+        weeklyRateMissing: !!details.weeklyRateMissing && !(isManualOverride && manualPrice !== null),
+
         price,
 
         enrollmentFee,
@@ -405,6 +427,8 @@ async function calculateCourseLine(course, nationality, country, applicationType
         discount: details.discount,
 
         discountSource: details.discountSource,
+
+        discountMergeLabel: !!details.discountMergeLabel,
 
         // Bonos informativos (ej. SEMANAS_GRATIS) — nunca afectan
         // subtotal/total, ver database.js#fetchCourseDetails.
@@ -431,6 +455,15 @@ async function calculateCourseLine(course, nationality, country, applicationType
 
         firstPaymentDepositMissing: false,
 
+        // Indicadores "Seguro Gratis"/"Visa Gratis" (ver
+        // database.js#buildCourseDiscountEffect) — Seguro/Visa se calculan
+        // UNA vez por opción, no por curso, así que esto solo viaja hasta
+        // calculateOptionQuote, que pone el costo en $0 si CUALQUIER curso
+        // de la opción trae la bandera en true.
+        waiveInsurance: !!details.waiveInsurance,
+
+        waiveVisa: !!details.waiveVisa,
+
         // "¿Es estudiante de la institución?" (solo se pregunta/usa en
         // Onshore) — ver pricing.js#applyInstitutionEnrollmentFeeRule.
         isExistingStudent: !!course.isExistingStudent,
@@ -443,9 +476,9 @@ async function calculateCourseLine(course, nationality, country, applicationType
 
 }
 
-async function calculateAllCourseLines(courses, nationality, country, applicationType) {
+async function calculateAllCourseLines(courses, country, applicationType) {
 
-    return Promise.all(courses.map(course => calculateCourseLine(course, nationality, country, applicationType)));
+    return Promise.all(courses.map(course => calculateCourseLine(course, country, applicationType)));
 
 }
 
@@ -889,12 +922,12 @@ async function calculateServicesLines(selectedServices) {
 
 
 /*==========================================================
- 9. PROMOCIONES APLICADAS
+ 9. DESCUENTOS APLICADOS
  ----------------------------------------------------------
  El descuento por curso ya se resolvió en database.js
- (fetchCourseDetails -> evaluatePromotionsForCourse, el Motor de
- Promociones). Aquí solo se recopila la lista de promociones
- efectivamente aplicadas, para mostrarlas en el resumen.
+ (fetchCourseDetails -> buildCourseDiscountEffect). Aquí solo se
+ recopila la lista de descuentos efectivamente aplicados, para
+ mostrarlos en el resumen.
 ==========================================================*/
 
 function collectPromotionsApplied(courseLines) {
@@ -1143,6 +1176,27 @@ function collectWarnings({ courses, courseLines, insurance, visa, student }) {
                 `Curso #${index + 1}: no se encontró esa combinación exacta en la hoja "Cursos". ` +
 
                 `Verifica Colegio/Ciudad/Tipo/Programa/Rango de duración.`
+
+            );
+
+        }
+
+        // Fila encontrada, pero sin tarifa semanal configurada para el
+        // Horario/Tipo de Aplicación elegidos (ni la del Horario, ni el
+        // respaldo general, ni un "Valor Semana" que la reemplace) — ver
+        // database.js#fetchCourseDetails. Se avisa ANTES de generar en
+        // vez de dejar pasar el curso en $0 en silencio (mismo principio
+        // que firstPaymentDepositMissing, pedido explícito del cliente,
+        // 2026-10-05).
+        if (line.weeklyRateMissing) {
+
+            warnings.push(
+
+                `Curso #${index + 1}: "${line.college}" no tiene tarifa semanal configurada para el horario ` +
+
+                `"${line.schedule}" (${student.application_type}). Verifica las columnas "Valor semana ..." ` +
+
+                `en la hoja "Cursos".`
 
             );
 

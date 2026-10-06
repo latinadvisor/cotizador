@@ -244,13 +244,14 @@ const WORLD_COUNTRIES = [
  CONTINENTE POR PAÍS (Prioridad 2 de database.js#resolveCourseRow)
  ----------------------------------------------------------
  Solo clasifica los 4 continentes que usa esa lógica —
- LATAM/Europa/Asia/África, decisión confirmada con el cliente
- tras detectar que el gentilicio del estudiante ("Nacionalidad",
- student.js#NATIONALITY_OPTIONS) es una lista corta que no
- distingue continente para "Otra". Por eso el continente se
- resuelve desde el PAÍS del estudiante (student.country, el que
- llega de GHL — ver student.js#getStudentCountryFromGhl), que sí
- tiene granularidad completa vía WORLD_COUNTRIES.
+ LATAM/Europa/Asia/África. El continente se resuelve a partir del
+ país de NACIONALIDAD ya derivado del gentilicio (ver
+ resolveNationalitySearchCountry más arriba), no del país de
+ residencia — salvo para "Otra", donde no hay país que derivar del
+ gentilicio y por eso esa función cae al país de residencia
+ (student.country, el que llega de GHL — ver
+ student.js#getStudentCountryFromGhl), que sí tiene granularidad
+ completa vía WORLD_COUNTRIES.
 
  LATAM cubre el núcleo hispanoamericano + Brasil (los mercados
  reales de LatinAdvisor). Deliberadamente NO incluye Caribe no
@@ -322,6 +323,53 @@ function resolveContinentForCountry(countryName) {
     const country = WORLD_COUNTRIES.find(c => stripAccents(normalize(c.name)) === target);
 
     return (country && COUNTRY_CONTINENT_BY_ISO2[country.iso2]) || null;
+
+}
+
+/*==========================================================
+ PAÍS DE NACIONALIDAD (derivado del gentilicio)
+ ----------------------------------------------------------
+ Decisión confirmada del cliente (2026-10-05): la columna
+ "Nacionalidad" de Cursos se busca por el PAÍS correspondiente al
+ gentilicio que elige la asesora (student.js#NATIONALITY_OPTIONS,
+ ej. "Española" -> "España"), NUNCA por el país de RESIDENCIA del
+ estudiante (student.country, el que llega de GHL/búsqueda de
+ lead) — una estudiante puede residir en Colombia y tener
+ nacionalidad española, y debe encontrar la fila de "España"
+ (o su continente, Europa), no la de "Colombia"/"LATAM".
+
+ Única excepción: "Otra". Al ser un gentilicio genérico sin país
+ específico, no hay nada que derivar, así que se usa el país de
+ residencia como mejor aproximación disponible (mismo criterio ya
+ documentado en COUNTRY_CONTINENT_BY_ISO2 más abajo).
+
+ Quien llama a esto (pricing.js#calculateOptionQuote) le pasa el
+ resultado a fetchCourseDetails/resolveCourseRow como "country" —
+ ya viene resuelto, esas funciones no distinguen gentilicio de
+ residencia, solo buscan por el país que reciben.
+==========================================================*/
+const GENTILICIO_TO_COUNTRY = {
+
+    "Argentina": "Argentina",
+    "Colombiana": "Colombia",
+    "Mexicana": "México",
+    "Chilena": "Chile",
+    "Ecuatoriana": "Ecuador",
+    "Venezolana": "Venezuela",
+    "Española": "España",
+    "Peruana": "Perú",
+    "Uruguaya": "Uruguay",
+    "Brasileña": "Brasil"
+
+};
+
+function resolveNationalitySearchCountry(nationality, residenceCountry) {
+
+    const target = stripAccents(normalize(nationality || ""));
+
+    const gentilicio = Object.keys(GENTILICIO_TO_COUNTRY).find(g => stripAccents(normalize(g)) === target);
+
+    return (gentilicio && GENTILICIO_TO_COUNTRY[gentilicio]) || residenceCountry || "";
 
 }
 

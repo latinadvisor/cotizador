@@ -344,9 +344,7 @@ async function toggleStudentCityField(id, city) {
  Obligatorio para TODOS los cursos, sin importar el Tipo de
  Aplicación (a diferencia de "¿Es estudiante de la institución?",
  que solo aplica en Onshore). El precio base del curso puede
- variar según este valor — ver database.js#resolveWeeklyRate —
- y también es uno de los criterios de coincidencia del Motor de
- Promociones (database.js#evaluatePromotionsForCourse).
+ variar según este valor — ver database.js#resolveWeeklyRate.
 
  "No aplica" es para programas (típicamente VET/HE) que no
  manejan horarios — con ese valor, resolveWeeklyRate no
@@ -412,13 +410,11 @@ function createWeeksField(id) {
 
         </label>
 
-        <input
-            id="weeks_${id}"
-            type="number"
-            min="1"
-            max="52"
-            step="1"
-            placeholder="Ej: 12">
+        <select id="weeks_${id}">
+
+            <option value="">Seleccionar</option>
+
+        </select>
 
     </div>
 
@@ -625,6 +621,12 @@ function attachCourseCardEvents(id) {
 
         .addEventListener("change", () => handleCourseTypeChange(id));
 
+    document
+
+        .getElementById(`program_${id}`)
+
+        .addEventListener("change", () => handleProgramChange(id));
+
 }
 
 
@@ -748,13 +750,21 @@ async function handleCityChange(id) {
 
 
 /*==========================================================
- CASCADA: TIPO -> PROGRAMA
- Y VISIBILIDAD DE DURACIÓN (SOLO ELICOS)
+ CASCADA: TIPO -> PROGRAMA -> DURACIÓN (SOLO ELICOS)
  ----------------------------------------------------------
  Hasta la eliminación de "Subtipo" (decisión confirmada del
  cliente — ver database.js#fetchProgramsByCourseSelection), este
  paso pasaba por un nivel intermedio Subtipo antes de llegar a
  Programa. Ahora Programa se deriva directo de Colegio+Ciudad+Tipo.
+
+ "Duración (Semanas)" dejó de ser un campo libre para ELICOS
+ (decisión confirmada del cliente — ya no hay semanas sueltas, solo
+ paquetes fijos definidos en la hoja): ahora es un selector que
+ aparece DESPUÉS de elegir Programa y se puebla con los paquetes
+ que de verdad existen para ese Colegio+Ciudad+Programa (ver
+ handleProgramChange/database.js#fetchElicosDurationsByCourseSelection).
+ Para VET/HE el campo sigue oculto — su duración es siempre fija y
+ nunca la elige la asesora.
 ==========================================================*/
 
 async function handleCourseTypeChange(id) {
@@ -777,11 +787,35 @@ async function handleCourseTypeChange(id) {
 
 }
 
+async function handleProgramChange(id) {
+
+    const college = document.getElementById(`college_${id}`).value;
+
+    const city = document.getElementById(`city_${id}`).value;
+
+    const type = document.getElementById(`course_type_${id}`).value;
+
+    const program = document.getElementById(`program_${id}`).value;
+
+    if (type !== "ELICOS") return;
+
+    resetSelect(`weeks_${id}`);
+
+    if (!program) return;
+
+    const weeksOptions = await fetchElicosDurationsByCourseSelection({ college, city, program });
+
+    populateSelectOptions(`weeks_${id}`, weeksOptions);
+
+}
+
 function toggleWeeksField(id, type) {
 
     const field = document.getElementById(`weeksField_${id}`);
 
     if (!field) return;
+
+    resetSelect(`weeks_${id}`);
 
     if (type === "ELICOS") {
 
@@ -790,8 +824,6 @@ function toggleWeeksField(id, type) {
     } else {
 
         field.classList.add("hidden");
-
-        document.getElementById(`weeks_${id}`).value = "";
 
     }
 
@@ -978,7 +1010,7 @@ function getAllCoursesData(optionId) {
             weeks: document.getElementById(`weeks_${id}`).value,
 
             // Obligatorio en todos los tipos de aplicación — ver
-            // database.js#resolveWeeklyRate / evaluatePromotionsForCourse.
+            // database.js#resolveWeeklyRate.
             schedule: document.getElementById(`schedule_${id}`).value,
 
             // Solo tiene efecto en Onshore — ver
