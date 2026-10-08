@@ -1176,35 +1176,73 @@ async function fetchCourseDetails({ college, city, type, program, weeks, schedul
  propia pestaña (Colegio, Tipo de condición, Parámetro), para
  poder ajustarla sin tocar código. Solo aplica a Onshore.
 
- Tipos de condición soportados hoy (ver
- pricing.js#applyOnshoreFirstPaymentDeposits para dónde se usa):
-   - "Valor fijo": el Parámetro ES el depósito base en AUD.
-   - "Semanas de estudio": el Parámetro es un número de semanas;
-     el depósito base = tarifa semanal Onshore cotizada × ese
-     número (sin tope — se usa el parámetro completo siempre,
-     decisión confirmada del cliente).
+ Tipos de condición soportados hoy (decisión confirmada del
+ cliente, 2026-10-07 — reemplaza la versión anterior de 2 tipos,
+ donde "Valor fijo" SÍ sumaba Matrícula/Materiales):
+   - "Valor fijo": el depósito ES directamente el Parámetro, sin
+     sumar nada más — ni Matrícula ni Materiales.
+   - "Valor + Matricula + Materiales": el depósito = Parámetro +
+     Matrícula + Materiales del curso (este es el comportamiento
+     que ANTES se llamaba "Valor fijo" — se renombró para dejar
+     "Valor fijo" como el valor puro, sin fees).
+   - "Semanas de estudio + Matricula + Materiales" (también se
+     acepta la forma vieja, sin el sufijo, por compatibilidad): el
+     Parámetro es un número de semanas; depósito = (tarifa semanal
+     Onshore cotizada × ese número) + Matrícula + Materiales (sin
+     tope — se usa el parámetro completo siempre).
 
- En ambos casos, al depósito base se le suma la Matrícula y los
- Materiales YA RESUELTOS de ese curso (netos de la regla de
- matrícula única por colegio y de cualquier promoción de
- matrícula/materiales gratis) — por eso este cálculo no puede
- vivir aquí mismo: tiene que ejecutarse en pricing.js DESPUÉS de
+ Cualquier "Tipo de condición" vacío o que no calce EXACTO con uno
+ de los 3 textos de arriba se trata como "no reconocido"
+ (recognized:false) — pricing.js#applyOnshoreFirstPaymentDeposits
+ lo marca igual que "colegio sin fila" (firstPaymentDepositMissing
+ = true), para que collectWarnings() avise y bloquee ANTES de
+ generar, en vez de mostrar $0 de base en silencio (decisión
+ confirmada del cliente: nunca más un depósito incompleto sin
+ aviso).
+
+ Matrícula/Materiales que se suman en los 2 tipos que los llevan
+ son los YA RESUELTOS de ese curso (netos de la regla de matrícula
+ única por colegio y de cualquier promoción de matrícula/materiales
+ gratis) — por eso el armado final del depósito no puede vivir
+ aquí: se ejecuta en pricing.js DESPUÉS de
  applyInstitutionEnrollmentFeeRule(), cuando esos valores ya son
  definitivos.
 */
+
+const ONSHORE_DEPOSIT_CONDITION_TYPES = {
+
+    VALOR_FIJO: normalize("Valor fijo"),
+
+    VALOR_MAS_FEES: normalize("Valor + Matricula + Materiales"),
+
+    SEMANAS_MAS_FEES: normalize("Semanas de estudio + Matricula + Materiales"),
+
+    // Alias legado: antes de este cambio, este era el ÚNICO texto para el
+    // cálculo por semanas (sin el sufijo "+ Matricula + Materiales”) — se
+    // sigue aceptando para no romper ninguna fila que no se haya migrado.
+    SEMANAS_LEGACY: normalize("Semanas de estudio")
+
+};
+
 async function fetchOnshoreDepositCondition(college) {
 
     const { primerDepositoOnshore } = await loadAllSheetsData();
 
     const row = primerDepositoOnshore.find(r => normalize(r["Colegio"]) === normalize(college));
 
-    if (!row) return { found: false, tipo: "", parametro: 0 };
+    if (!row) return { found: false, recognized: false, tipo: "", parametro: 0 };
+
+    const tipo = normalize(row["Tipo de condición"]);
+
+    const recognized = Object.values(ONSHORE_DEPOSIT_CONDITION_TYPES).includes(tipo);
 
     return {
 
         found: true,
 
-        tipo: normalize(row["Tipo de condición"]),
+        recognized,
+
+        tipo,
 
         parametro: Number(row["Parámetro"]) || 0
 
@@ -1212,27 +1250,55 @@ async function fetchOnshoreDepositCondition(college) {
 
 }
 
+/*
+    Devuelve { base, includesFees } — "includesFees" le dice a
+    pricing.js#applyOnshoreFirstPaymentDeposits si además debe sumar
+    Matrícula/Materiales, o si el depósito es el valor puro. Para un tipo
+    no reconocido devuelve base 0 / includesFees false — el llamador ya
+    revisa "recognized" aparte para decidir si avisar.
+*/
 function computeOnshoreDepositBase(condition, onshoreWeeklyRate) {
 
-    if (condition.tipo === normalize("Valor fijo")) return condition.parametro;
+    const T = ONSHORE_DEPOSIT_CONDITION_TYPES;
 
-    if (condition.tipo === normalize("Semanas de estudio")) return onshoreWeeklyRate * condition.parametro;
+    if (condition.tipo === T.VALOR_FIJO) return { base: condition.parametro, includesFees: false };
 
-    return 0;
+    if (condition.tipo === T.VALOR_MAS_FEES) return { base: condition.parametro, includesFees: true };
+
+    if (condition.tipo === T.SEMANAS_MAS_FEES || condition.tipo === T.SEMANAS_LEGACY) {
+
+        return { base: onshoreWeeklyRate * condition.parametro, includesFees: true };
+
+    }
+
+    return { base: 0, includesFees: false };
 
 }
 
 
 
 /*==========================================================
- SEGURO MÉDICO
+ SEGURO MÉDICO (decisión confirmada del cliente, 2026-10-07)
  ----------------------------------------------------------
- La hoja "Seguros" trae una fila por cada plan (columna A,
- "seguro"), con el valor POR SEMANA de ese plan en las columnas
- "Single"/"Couple"/"Family" (una por Tipo de Cotización). La
- asesora elige el plan en el cotizador; el costo total se
- calcula multiplicando ese valor semanal por la duración total
- de la cotización (ver pricing.js#calculateInsurance).
+ Reemplaza el cálculo "valor semanal × semanas" — igual que los
+ cursos, la hoja "Seguros" ahora trae una fila por cada plan +
+ duración exacta (columnas "seguro", "Duración"), con
+ "Single"/"Couple"/"Family" como el MONTO TOTAL YA RESUELTO para
+ esa duración (nunca un valor por semana) — se lee directo, sin
+ ningún cálculo (ver pricing.js#calculateInsurance). La columna
+ "vacaciones" es solo referencia para quien carga la hoja (cuántas
+ semanas de gracia ya vienen incluidas en ese monto); el código
+ nunca la usa.
+
+ Búsqueda por COINCIDENCIA EXACTA de (seguro, Duración = semanas
+ totales de la cotización) — sin redondeo ni extrapolación: si no
+ existe una fila para esa duración exacta, se trata como "no
+ encontrado" (found:false), igual que cualquier otro dato faltante
+ — bloquea "Generar Cotización" en vez de inventar un número
+ (collectWarnings ya tiene el aviso para este caso). La regla de
+ qué hacer cuando la duración no calza exacto (¿tomar la más
+ cercana? ¿cuál redondeo?) queda PENDIENTE de definir con el
+ cliente — por ahora es estrictamente "exacto o nada".
 ==========================================================*/
 
 async function fetchInsuranceOptions() {
@@ -1249,19 +1315,22 @@ async function fetchInsuranceOptions() {
 
 }
 
-async function fetchInsuranceWeeklyRate({ insuranceName, quotationType }) {
+async function fetchInsuranceCost({ insuranceName, quotationType, totalWeeks }) {
 
     const { seguros } = await loadAllSheetsData();
 
-    const row = seguros.find(r => normalize(r["seguro"]) === normalize(insuranceName));
+    const row = seguros.find(r =>
+        normalize(r["seguro"]) === normalize(insuranceName) &&
+        Number(r["Duración"]) === Number(totalWeeks)
+    );
 
     if (!row || !Object.prototype.hasOwnProperty.call(row, quotationType)) {
 
-        return { weeklyRate: 0, found: false };
+        return { amount: 0, found: false };
 
     }
 
-    return { weeklyRate: Number(row[quotationType]) || 0, found: true };
+    return { amount: Number(row[quotationType]) || 0, found: true };
 
 }
 
@@ -1334,15 +1403,37 @@ async function fetchOffshoreExtraCosts(destination) {
 
 /*==========================================================
  SERVICIOS OPCIONALES
+ ----------------------------------------------------------
+ AIRPORT PICKUP (decisión confirmada del cliente, 2026-10-07):
+ la hoja sigue trayendo una fila POR CIUDAD ("Airport Pickup
+ Sydney", "Airport Pickup Melbourne", etc. — columna "Servicio"),
+ pero ya no se muestran como checkboxes separados: fetchServiceCatalog()
+ las saca del catálogo plano y expone un único servicio sintético
+ "Airport Pickup" (AIRPORT_PICKUP_CODE) en su lugar. El precio real
+ por ciudad se resuelve aparte con fetchAirportPickupRate() — ver
+ pricing.js#calculateServicesLines para el dónde y el cómo (el
+ cotizador compara TODAS las ciudades de estudio de TODAS las
+ opciones de colegio y usa la más cara, igual que cualquier otro
+ servicio "compartido" — ver esa función para el detalle completo).
 ==========================================================*/
+
+const AIRPORT_PICKUP_PREFIX = "Airport Pickup";
+
+const AIRPORT_PICKUP_CODE = "airport-pickup";
 
 async function fetchServiceCatalog() {
 
     const { serviciosOpcionales } = await loadAllSheetsData();
 
-    return serviciosOpcionales
+    const rows = serviciosOpcionales.filter(row => row["Servicio"]);
 
-        .filter(row => row["Servicio"])
+    const firstAirportPickupIndex = rows.findIndex(row =>
+        normalize(row["Servicio"]).startsWith(normalize(AIRPORT_PICKUP_PREFIX))
+    );
+
+    const catalog = rows
+
+        .filter(row => !normalize(row["Servicio"]).startsWith(normalize(AIRPORT_PICKUP_PREFIX)))
 
         .map(row => ({
 
@@ -1364,6 +1455,53 @@ async function fetchServiceCatalog() {
             shortLabel: String(row["Etiqueta Corta"] || row["Servicio"]).trim()
 
         }));
+
+    if (firstAirportPickupIndex === -1) return catalog;
+
+    // unitCost/shortLabel quedan en 0/genérico a propósito: el precio real
+    // (dependiente de ciudad) lo resuelve pricing.js#calculateServicesLines
+    // vía fetchAirportPickupRate(), nunca este catálogo plano.
+    const airportPickupEntry = {
+
+        code: AIRPORT_PICKUP_CODE,
+
+        label: AIRPORT_PICKUP_PREFIX,
+
+        unitCost: 0,
+
+        shortLabel: AIRPORT_PICKUP_PREFIX
+
+    };
+
+    // Se inserta donde estaba la primera fila "Airport Pickup <Ciudad>" en
+    // la hoja, para que el orden visual del listado de servicios no
+    // cambie demasiado respecto a lo que ya conoce la asesora.
+    const insertAt = Math.min(firstAirportPickupIndex, catalog.length);
+
+    catalog.splice(insertAt, 0, airportPickupEntry);
+
+    return catalog;
+
+}
+
+/*
+    Precio real de Airport Pickup para UNA ciudad concreta — busca la fila
+    "Airport Pickup <Ciudad>" exacta (ignora acentos/mayúsculas). Si esa
+    ciudad no tiene fila propia, se trata como "no disponible" (found:false)
+    — nunca cae a un valor genérico, porque hoy el precio SIEMPRE varía
+    por ciudad (no existe una fila "Airport Pickup" sin ciudad).
+*/
+async function fetchAirportPickupRate(city) {
+
+    const { serviciosOpcionales } = await loadAllSheetsData();
+
+    const target = normalize(`${AIRPORT_PICKUP_PREFIX} ${city}`);
+
+    const row = serviciosOpcionales.find(r => normalize(r["Servicio"]) === target);
+
+    if (!row) return { amount: 0, found: false };
+
+    return { amount: Number(row["Precio"]) || 0, found: true };
 
 }
 

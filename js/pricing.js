@@ -76,7 +76,15 @@ async function calculateQuotation() {
 
     const extraCosts = await calculateExtraCosts();
 
-    const servicesLines = await calculateServicesLines(input.services);
+    // Ver resolveBestAirportPickupRate más abajo — Airport Pickup sigue
+    // siendo NIVEL 1 (compartido entre todas las opciones de colegio,
+    // igual que SIM Card/Traducciones), pero su precio depende de la
+    // ciudad de estudio, así que hay que resolverlo ANTES de armar
+    // servicesLines, mirando los cursos de TODAS las opciones (decisión
+    // confirmada del cliente, 2026-10-07).
+    const airportPickupRate = await resolveBestAirportPickupRate(input.options);
+
+    const servicesLines = await calculateServicesLines(input.services, airportPickupRate);
 
     const servicesSubtotal = sumBySubtotal(servicesLines);
 
@@ -562,18 +570,18 @@ function applyInstitutionEnrollmentFeeRule(courseLines, applicationType) {
  promoción de matrícula/materiales gratis) — exactamente los que
  pide sumar la fórmula.
 
- Fórmula (decisión confirmada del cliente, igual para ambos tipos
- de condición salvo la base):
-   Depósito del curso = Base + Matrícula del curso + Materiales del curso
-   Base (Valor fijo)          = Parámetro
-   Base (Semanas de estudio)  = tarifa semanal Onshore cotizada × Parámetro
+ Fórmula (decisión confirmada del cliente, 2026-10-07 — 3 tipos de
+ condición, ver database.js#ONSHORE_DEPOSIT_CONDITION_TYPES):
+   "Valor fijo"                                   -> Depósito = Parámetro (solo eso, sin fees)
+   "Valor + Matricula + Materiales"                -> Depósito = Parámetro + Matrícula + Materiales
+   "Semanas de estudio + Matricula + Materiales"   -> Depósito = (tarifa semanal Onshore cotizada × Parámetro) + Matrícula + Materiales
 
- Si el Colegio no tiene fila en esa pestaña, el depósito de ese
- curso queda en 0 y se marca firstPaymentDepositMissing=true, para
- que collectWarnings() avise a la asesora ANTES de generar la
- cotización — no hay respaldo silencioso a ningún valor viejo
- (decisión confirmada del cliente: la columna "Primer deposito" de
- Cursos ya no existe).
+ Si el Colegio no tiene fila en esa pestaña, O la tiene pero con un
+ "Tipo de condición" vacío/no reconocido, el depósito de ese curso
+ queda en 0 y se marca firstPaymentDepositMissing=true, para que
+ collectWarnings() avise a la asesora ANTES de generar la
+ cotización — no hay respaldo silencioso a ningún valor viejo ni a
+ un depósito incompleto (decisión confirmada del cliente).
 
  No hace nada para Offshore — ahí el Primer Pago sigue la fórmula
  de calculateOffshoreFirstPayment25Plus(), sin relación con esto.
@@ -587,7 +595,11 @@ async function applyOnshoreFirstPaymentDeposits(courseLines, applicationType) {
 
         const condition = await fetchOnshoreDepositCondition(line.college);
 
-        if (!condition.found) {
+        // Sin fila, o con "Tipo de condición" vacío/no reconocido (ver
+        // database.js#fetchOnshoreDepositCondition) — ambos casos avisan y
+        // bloquean, en vez de mostrar un depósito de $0 de base en
+        // silencio (decisión confirmada del cliente, 2026-10-07).
+        if (!condition.found || !condition.recognized) {
 
             line.firstPaymentDeposit = 0;
 
@@ -597,9 +609,9 @@ async function applyOnshoreFirstPaymentDeposits(courseLines, applicationType) {
 
         }
 
-        const base = computeOnshoreDepositBase(condition, line.onshoreWeeklyRate);
+        const { base, includesFees } = computeOnshoreDepositBase(condition, line.onshoreWeeklyRate);
 
-        line.firstPaymentDeposit = base + line.enrollmentFee + line.materialsFee;
+        line.firstPaymentDeposit = includesFees ? (base + line.enrollmentFee + line.materialsFee) : base;
 
     }
 
@@ -608,27 +620,27 @@ async function applyOnshoreFirstPaymentDeposits(courseLines, applicationType) {
 
 
 /*==========================================================
- 4. SEGURO MÉDICO
+ 4. SEGURO MÉDICO (decisión confirmada del cliente, 2026-10-07)
  ----------------------------------------------------------
- Costo = valor semanal del plan elegido × duración total de la
- cotización (suma de las semanas de todos los cursos, cada una
- ya resuelta según su tipo — ver calculateCourseLine).
+ Ya NO se calcula (valor semanal × semanas): igual que los cursos,
+ la hoja "Seguros" trae el monto TOTAL ya resuelto por (plan,
+ duración exacta) — se lee directo, sin aritmética, ver
+ database.js#fetchInsuranceCost. "totalWeeks" aquí es la duración
+ real de la cotización (suma de las semanas de todos los cursos,
+ ver computeTotalWeeks) — ya NO se le suma ningún offset de
+ "semanas de vacaciones": eso ahora vive baked-in en el monto de
+ cada fila de la hoja (columna "vacaciones", solo informativa para
+ quien la carga). insurance.cost es la ÚNICA fuente de este monto
+ — pantalla (summary.js), Resumen Financiero (assembleTotals) y PDF
+ (pdf.js) lo leen tal cual.
 
- El seguro SIEMPRE cubre 8 semanas (2 meses) adicionales sobre
- esa duración (decisión confirmada del cliente) — el offset se
- suma únicamente AQUÍ ADENTRO, nunca en `totalWeeks` en sí, que
- sigue siendo la duración real del curso para todo lo demás que
- lo usa: el umbral de Primer Pago Offshore ≥25 semanas (ver
- calculateFirstPayment más abajo) y la etiqueta "ESTUDIO POR" del
- PDF (pdf.js#buildOverlayDocDefinition, que recalcula su propio
- computeTotalWeeks a partir de los cursos). insurance.cost es la
- ÚNICA fuente de este monto — pantalla (summary.js), Resumen
- Financiero (assembleTotals) y PDF (pdf.js) lo leen tal cual, sin
- recalcularlo cada uno por su lado, así que quedan consistentes
- automáticamente.
+ Si no existe una fila para (plan, totalWeeks) exactos, se trata
+ como "no encontrado" (found:false) — collectWarnings() avisa y
+ bloquea "Generar Cotización", igual que cualquier otro dato
+ faltante. Qué hacer cuando la duración no calza exacto (¿tomar la
+ más cercana? ¿cuál redondeo?) queda PENDIENTE de definir con el
+ cliente — por ahora es estrictamente "exacto o nada".
 ==========================================================*/
-
-const INSURANCE_EXTRA_WEEKS = 8;
 
 function computeTotalWeeks(courseLines) {
 
@@ -638,27 +650,23 @@ function computeTotalWeeks(courseLines) {
 
 async function calculateInsurance({ insuranceName, totalWeeks, quotationType }) {
 
-    const coverageWeeks = totalWeeks + INSURANCE_EXTRA_WEEKS;
-
     if (!insuranceName) {
 
-        return { name: "", totalWeeks: coverageWeeks, quotationType, weeklyRate: 0, cost: 0, found: false };
+        return { name: "", totalWeeks, quotationType, cost: 0, found: false };
 
     }
 
-    const rate = await fetchInsuranceWeeklyRate({ insuranceName, quotationType });
+    const rate = await fetchInsuranceCost({ insuranceName, quotationType, totalWeeks });
 
     return {
 
         name: insuranceName,
 
-        totalWeeks: coverageWeeks,
+        totalWeeks,
 
         quotationType,
 
-        weeklyRate: rate.weeklyRate,
-
-        cost: rate.weeklyRate * coverageWeeks,
+        cost: rate.amount,
 
         found: rate.found
 
@@ -670,13 +678,30 @@ async function calculateInsurance({ insuranceName, totalWeeks, quotationType }) 
 
 /*==========================================================
  5. VISA
+ ----------------------------------------------------------
+ VISA_CREDIT_CARD_SURCHARGE_RATE (decisión confirmada del cliente,
+ 2026-10-07): la pasarela de pago SIEMPRE cobra 1.4% extra sobre
+ cualquier cargo de Visa — se suma aquí, a la salida de
+ fetchVisaCost(), para que TODO lo que ya lee visa.cost (Otros
+ Cargos, Primer Pago Onshore, fórmula Offshore ≥25 semanas) lo
+ reciba automáticamente incluido, sin tener que tocar cada sitio
+ donde se usa. El recargo de 3ra aplicación (más abajo) es visa
+ también, así que lleva el mismo 1.4% — aplicado por separado en su
+ propio cálculo, nunca sumado dos veces. Es una constante de código
+ (no vive en la hoja "Parámetros") porque el cliente dio un número
+ fijo — si más adelante necesita ajustarse sin tocar código, mover
+ a Parámetros.
 ==========================================================*/
+
+const VISA_CREDIT_CARD_SURCHARGE_RATE = 0.014;
 
 async function calculateVisa({ courseLines, destination, numberApplicants }) {
 
     const courseTypes = [...new Set(courseLines.map(line => line.type).filter(Boolean))];
 
     const result = await fetchVisaCost({ destination, courseTypes, numberApplicants });
+
+    const perApplicant = result.perApplicant * (1 + VISA_CREDIT_CARD_SURCHARGE_RATE);
 
     return {
 
@@ -686,7 +711,7 @@ async function calculateVisa({ courseLines, destination, numberApplicants }) {
 
         numberApplicants,
 
-        cost: result.total,
+        cost: perApplicant * numberApplicants,
 
         found: result.found
 
@@ -726,7 +751,10 @@ async function calculateSecondApplicationSurcharge({ application_type, applicati
 
     }
 
-    const perApplicantAmount = await fetchSecondApplicationSurcharge();
+    // Lleva el mismo 1.4% de tarjeta de crédito que el resto de Visa (ver
+    // VISA_CREDIT_CARD_SURCHARGE_RATE más arriba) — este recargo es visa
+    // también, aunque viva en un parámetro aparte.
+    const perApplicantAmount = (await fetchSecondApplicationSurcharge()) * (1 + VISA_CREDIT_CARD_SURCHARGE_RATE);
 
     return {
 
@@ -845,26 +873,147 @@ async function calculateExtraCosts() {
 
 /*==========================================================
  8. SERVICIOS OPCIONALES
+ ----------------------------------------------------------
+ AIRPORT PICKUP (decisión confirmada del cliente, 2026-10-07): ver
+ database.js#fetchServiceCatalog/fetchAirportPickupRate. Sigue
+ siendo un servicio NIVEL 1 (compartido entre todas las opciones de
+ colegio, como SIM Card/Traducciones), pero su precio depende de la
+ ciudad de estudio. resolveBestAirportPickupRate() mira los cursos
+ de TODAS las opciones de la cotización (no solo una), resuelve la
+ ciudad real de cada uno (igual que database.js#resolveCourseDisplayCity:
+ si el curso usa el comodín "Todos los campus", la ciudad real es
+ "Ciudad seleccionada por el estudiante") y usa la tarifa MÁS ALTA
+ entre todas esas ciudades — mismo criterio que ya aplica para
+ cualquier otro servicio compartido (un solo monto para toda la
+ cotización). Si NINGUNA ciudad tiene fila de Airport Pickup
+ configurada, el servicio se excluye de la cotización en silencio
+ (aunque la asesora lo haya marcado) — no hay nada que cobrar ni que
+ avisar, es información de catálogo faltante, no un error de la
+ asesora.
 ==========================================================*/
 
-async function calculateServicesLines(selectedServices) {
+function resolveCourseStudyCity(course) {
+
+    return course.city === ALL_CITIES_OPTION ? (course.studentCity || "") : (course.city || "");
+
+}
+
+async function resolveBestAirportPickupRate(options) {
+
+    const cities = new Set();
+
+    (options || []).forEach(option => {
+
+        (option.courses || []).forEach(course => {
+
+            const city = resolveCourseStudyCity(course);
+
+            if (city) cities.add(city);
+
+        });
+
+    });
+
+    let best = null;
+
+    for (const city of cities) {
+
+        const rate = await fetchAirportPickupRate(city);
+
+        if (rate.found && (!best || rate.amount > best.amount)) best = { city, amount: rate.amount };
+
+    }
+
+    return best;
+
+}
+
+async function calculateServicesLines(selectedServices, airportPickupRate) {
 
     if (!selectedServices || selectedServices.length === 0) return [];
 
     const catalog = await fetchServiceCatalog();
 
-    return selectedServices.map(selected => {
+    return selectedServices
 
-        // "Servicio extra" (ver services.js#getSelectedServices): no tiene
-        // fila en el catálogo, la asesora escribió descripción y valor a
-        // mano. El nombre a mostrar es la descripción TAL CUAL la escribió
-        // la asesora (decisión confirmada del cliente: en el PDF debe verse
-        // solo esa descripción, sin el prefijo "Servicio extra –" ni ningún
-        // otro texto agregado) — pdf.js además omite el sufijo "(xN)" para
-        // estas líneas (ver isCustom ahí).
-        if (selected.isCustom) {
+        .map(selected => {
 
-            const label = selected.customLabel;
+            // "Servicio extra" (ver services.js#getSelectedServices): no tiene
+            // fila en el catálogo, la asesora escribió descripción y valor a
+            // mano. El nombre a mostrar es la descripción TAL CUAL la escribió
+            // la asesora (decisión confirmada del cliente: en el PDF debe verse
+            // solo esa descripción, sin el prefijo "Servicio extra –" ni ningún
+            // otro texto agregado) — pdf.js además omite el sufijo "(xN)" para
+            // estas líneas (ver isCustom ahí).
+            if (selected.isCustom) {
+
+                const label = selected.customLabel;
+
+                return {
+
+                    serviceCode: selected.serviceCode,
+
+                    label,
+
+                    shortLabel: label,
+
+                    quantity: 1,
+
+                    unitCost: selected.customValue,
+
+                    subtotal: selected.customValue,
+
+                    isCustom: true
+
+                };
+
+            }
+
+            if (selected.serviceCode === AIRPORT_PICKUP_CODE) {
+
+                // Ninguna ciudad de la cotización tiene tarifa configurada —
+                // se excluye esta línea en vez de cobrar $0 (ver cabecera de
+                // esta sección).
+                if (!airportPickupRate) return null;
+
+                const catalogEntry = catalog.find(entry => entry.code === AIRPORT_PICKUP_CODE);
+
+                const quantity = selected.quantity || 1;
+
+                return {
+
+                    serviceCode: selected.serviceCode,
+
+                    // Sin la ciudad en paréntesis (pedido explícito del
+                    // cliente, 2026-10-07): el PDF debe decir solo "Airport
+                    // Pickup", aunque el monto por dentro sí dependa de la
+                    // ciudad resuelta (ver resolveBestAirportPickupRate).
+                    label: AIRPORT_PICKUP_PREFIX,
+
+                    shortLabel: catalogEntry ? catalogEntry.shortLabel : AIRPORT_PICKUP_PREFIX,
+
+                    quantity,
+
+                    unitCost: airportPickupRate.amount,
+
+                    subtotal: airportPickupRate.amount * quantity
+
+                };
+
+            }
+
+            const catalogEntry = catalog.find(entry => entry.code === selected.serviceCode);
+
+            const unitCost = catalogEntry ? catalogEntry.unitCost : 0;
+
+            const label = catalogEntry ? catalogEntry.label : selected.serviceCode;
+
+            // Ver database.js#fetchServiceCatalog — usada solo por
+            // pdf.js#buildAdicionalesLabel para la fila dinámica del
+            // comparativo, nunca para el desglose (que sigue usando "label").
+            const shortLabel = catalogEntry ? catalogEntry.shortLabel : selected.serviceCode;
+
+            const quantity = selected.quantity || 1;
 
             return {
 
@@ -872,50 +1021,19 @@ async function calculateServicesLines(selectedServices) {
 
                 label,
 
-                shortLabel: label,
+                shortLabel,
 
-                quantity: 1,
+                quantity,
 
-                unitCost: selected.customValue,
+                unitCost,
 
-                subtotal: selected.customValue,
-
-                isCustom: true
+                subtotal: unitCost * quantity
 
             };
 
-        }
+        })
 
-        const catalogEntry = catalog.find(entry => entry.code === selected.serviceCode);
-
-        const unitCost = catalogEntry ? catalogEntry.unitCost : 0;
-
-        const label = catalogEntry ? catalogEntry.label : selected.serviceCode;
-
-        // Ver database.js#fetchServiceCatalog — usada solo por
-        // pdf.js#buildAdicionalesLabel para la fila dinámica del
-        // comparativo, nunca para el desglose (que sigue usando "label").
-        const shortLabel = catalogEntry ? catalogEntry.shortLabel : selected.serviceCode;
-
-        const quantity = selected.quantity || 1;
-
-        return {
-
-            serviceCode: selected.serviceCode,
-
-            label,
-
-            shortLabel,
-
-            quantity,
-
-            unitCost,
-
-            subtotal: unitCost * quantity
-
-        };
-
-    });
+        .filter(Boolean);
 
 }
 
@@ -1231,7 +1349,9 @@ function collectWarnings({ courses, courseLines, insurance, visa, student }) {
 
             `Seguro médico: no se encontró una tarifa para "${student.insurance}" con tipo de cotización ` +
 
-            `"${student.quotation_type}" en la hoja "Seguros".`
+            `"${student.quotation_type}" y duración ${insurance.totalWeeks} semana(s) en la hoja "Seguros". ` +
+
+            `Verifica que exista una fila con esa duración exacta.`
 
         );
 
