@@ -689,6 +689,27 @@ function attachCourseCardEvents(id) {
 
         .addEventListener("change", () => handleProgramChange(id));
 
+    /*
+        "Fecha de inicio del curso" (decisión confirmada del cliente,
+        2026-10-10): por defecto, un input[type="date"] solo abre el
+        calendario nativo al hacer clic en el icono pequeño de la
+        derecha — showPicker() lo abre al hacer clic en CUALQUIER parte
+        de la casilla. Soportado en navegadores basados en Chromium (el
+        caso real de uso); si el navegador no lo soporta, el clic
+        simplemente enfoca el campo como ya hacía antes (no rompe nada).
+    */
+    const startDateInput = document.getElementById(`start_date_${id}`);
+
+    if (startDateInput) {
+
+        startDateInput.addEventListener("click", () => {
+
+            if (typeof startDateInput.showPicker === "function") startDateInput.showPicker();
+
+        });
+
+    }
+
 }
 
 

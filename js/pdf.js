@@ -1118,15 +1118,46 @@ function buildResumenFinancieroSection(quote, moneyCtx) {
     buildExtraCostsDesgloseNoteText para el texto exacto (distinto según
     Onshore/Offshore).
 */
+/*
+    "Nota:" DE LA PÁGINA DE CADA OPCIÓN (no confundir con "Notas" general,
+    que vive UNA sola vez en la página comparativa — ver
+    buildGeneralNotesSection). Combina 2 cosas que SÍ son específicas de
+    ESTA opción/colegio, por eso no pueden vivir en la lista general
+    compartida (ahí se mostrarían igual para cualquier opción, aunque
+    fuera de un colegio distinto sin esa condición):
+      - Costos Extras (exámenes médicos/biométricos) — ya existía.
+      - "condición extra" = "Nota" del Primer Depósito Onshore (decisión
+        confirmada del cliente, 2026-10-10, ver
+        database.js#fetchOnshoreDepositCondition/pricing.js#applyOnshoreFirstPaymentDeposits)
+        — ej. Greenwich College. Deduplicada si varios cursos de esta
+        opción comparten colegio.
+    Si ninguna de las 2 aplica, no se agrega ningún bloque.
+*/
 function buildExtraCostsDesgloseSection(quote, moneyCtx) {
 
-    if (!quote.extraCosts || !quote.extraCosts.applies) return [];
+    const items = [];
+
+    if (quote.extraCosts && quote.extraCosts.applies) {
+
+        items.push(buildExtraCostsDesgloseNoteText(quote, moneyCtx));
+
+    }
+
+    const depositNotes = [...new Set((quote.courses || []).map(course => course.firstPaymentDepositNote).filter(Boolean))];
+
+    items.push(...depositNotes);
+
+    if (items.length === 0) return [];
 
     return [
 
         { text: "Nota:", style: "sectionTitle", margin: [0, 10, 0, 4] },
 
-        { text: buildExtraCostsDesgloseNoteText(quote, moneyCtx), bold: true, color: PDF_COLORS.text, fontSize: 9 }
+        items.length === 1
+
+            ? { text: items[0], bold: true, color: PDF_COLORS.text, fontSize: 9 }
+
+            : { ul: items, bold: true, color: PDF_COLORS.text, fontSize: 9 }
 
     ];
 
@@ -1309,14 +1340,15 @@ function collectNotes(quote, moneyCtx) {
     }
 
     /*
-        Maestría by Research — Visa del menor de edad (decisión
-        confirmada del cliente, 2026-10-09, ver hoja "Visas" columna F,
-        fila HE/Australia): si el curso es Higher Education y la
-        cotización es Family con menores de edad, se avisa que un
-        programa de maestría by research podría eximir al menor del pago
-        de visa. No se resta nada automáticamente — hoy no existe en
+        Maestría by Research — Visa del dependiente (decisión confirmada
+        del cliente, 2026-10-09 y 2026-10-10, ver hoja "Visas" columna F,
+        fila HE/Australia): dos notas distintas, mutuamente excluyentes
+        (Family y Couple no se dan juntas en la misma cotización — ver
+        quotation_type), cada una avisando sobre un dependiente distinto
+        que un programa de maestría by research podría eximir del pago de
+        visa. Ninguna resta nada automáticamente — hoy no existe en
         "Cursos" ninguna forma de identificar que un programa puntual ES
-        "by research" (0 filas HE cargadas todavía), así que esto queda
+        "by research" (0 filas HE cargadas todavía), así que ambas quedan
         como advertencia para que la asesora confirme el caso con el
         equipo de visa, igual que ya se hace con Costos Extras.
     */
@@ -1327,6 +1359,17 @@ function collectNotes(quote, moneyCtx) {
         notes.push("Si el programa corresponde a una maestría by research (Higher Education), el menor de edad no paga el valor de la visa — verifica esta condición con el equipo de visa antes de confirmar el costo final.");
 
     }
+
+    if (visa.primaryType === "HE" && visa.quotationType === "Couple") {
+
+        notes.push("Si el programa corresponde a una maestría by research (Higher Education), el dependiente mayor de edad (pareja) no paga el valor de la visa — verifica esta condición con el equipo de visa antes de confirmar el costo final.");
+
+    }
+
+    // La nota de Primer Depósito Onshore ("condición extra" = "Nota") NO
+    // vive aquí — es específica de cada opción/colegio, así que se
+    // muestra en la página de ESA opción (ver buildExtraCostsDesgloseSection
+    // más abajo), no en esta lista compartida por todas las opciones.
 
     if (hasExtraCosts) {
 

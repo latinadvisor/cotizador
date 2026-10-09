@@ -1274,12 +1274,22 @@ const NO_BRACKET_MATCH_SENTINEL = "__sin_tramo_cobra_100__";
     reconocido (en ese caso matchesExtraCondition() lo trata como "no
     aplica", nunca como comodín, para no aplicar un tramo mal escrito por
     accidente).
+
+    "Nota" (decisión confirmada del cliente, 2026-10-10, ej. Greenwich
+    College): comodín igual que la celda vacía (aplica siempre, no
+    reemplaza ningún tramo de semanas) — pero además marca "isNote: true",
+    que fetchOnshoreDepositCondition usa para traer el texto libre de la
+    columna "información de la nota" y mostrarlo en las Notas del PDF (ver
+    pdf.js#collectNotes). El cálculo del depósito en sí NO cambia por
+    esto — sigue el "Tipo de condición" normal de esa misma fila.
 */
 function parseExtraConditionRange(rawExtraCondition) {
 
     const raw = String(rawExtraCondition == null ? "" : rawExtraCondition).trim();
 
     if (raw === "") return { wildcard: true };
+
+    if (normalize(raw) === normalize("Nota")) return { wildcard: true, isNote: true };
 
     const rangeMatch = raw.match(/^(\d+)\s*-\s*(\d+)$/);
 
@@ -1329,11 +1339,19 @@ async function fetchOnshoreDepositCondition(college, officialWeeks) {
         ningún descuento de depósito. Ver NO_BRACKET_MATCH_SENTINEL /
         computeOnshoreDeposit más abajo.
     */
-    if (!row) return { found: true, recognized: true, tipo: NO_BRACKET_MATCH_SENTINEL, parametro: 0 };
+    if (!row) return { found: true, recognized: true, tipo: NO_BRACKET_MATCH_SENTINEL, parametro: 0, infoNote: "" };
 
     const tipo = normalize(row["Tipo de condición"]);
 
     const recognized = Object.values(ONSHORE_DEPOSIT_CONDITION_TYPES).includes(tipo);
+
+    // "información de la nota" — solo se expone cuando "condición extra"
+    // de ESTA fila literalmente dice "Nota" (ver parseExtraConditionRange
+    // más arriba). El cálculo del depósito (tipo/parámetro) sigue intacto
+    // — esto es puramente informativo para pdf.js#collectNotes.
+    const extraRange = parseExtraConditionRange(row["condición extra"]);
+
+    const infoNote = (extraRange && extraRange.isNote) ? String(row["información de la nota"] || "").trim() : "";
 
     return {
 
@@ -1343,7 +1361,9 @@ async function fetchOnshoreDepositCondition(college, officialWeeks) {
 
         tipo,
 
-        parametro: Number(row["Parámetro"]) || 0
+        parametro: Number(row["Parámetro"]) || 0,
+
+        infoNote
 
     };
 

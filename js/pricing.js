@@ -475,6 +475,11 @@ async function calculateCourseLine(course, country, applicationType) {
 
         firstPaymentDepositMissing: false,
 
+        // "condición extra" = "Nota" en Primer depósito Onshore (ver
+        // database.js#fetchOnshoreDepositCondition) — texto libre que
+        // pdf.js#collectNotes agrega a las Notas del PDF cuando aplica.
+        firstPaymentDepositNote: "",
+
         // Indicadores "Seguro Gratis"/"Visa Gratis" (ver
         // database.js#buildCourseDiscountEffect) — Seguro/Visa se calculan
         // UNA vez por opción, no por curso, así que esto solo viaja hasta
@@ -602,6 +607,13 @@ function applyInstitutionEnrollmentFeeRule(courseLines, applicationType) {
  cotización — no hay respaldo silencioso a ningún valor viejo ni a
  un depósito incompleto (decisión confirmada del cliente).
 
+ "condición extra" = "Nota" (decisión confirmada del cliente,
+ 2026-10-10, ej. Greenwich College): no cambia la fórmula del
+ depósito (sigue el "Tipo de condición" normal de esa fila) — solo
+ agrega el texto libre de la columna "información de la nota" a
+ line.firstPaymentDepositNote, que pdf.js#collectNotes suma a las
+ Notas del PDF (deduplicado si varios cursos comparten colegio).
+
  No hace nada para Offshore — ahí el Primer Pago sigue la fórmula
  de calculateOffshoreFirstPayment25Plus(), sin relación con esto.
 ==========================================================*/
@@ -645,6 +657,8 @@ async function applyOnshoreFirstPaymentDeposits(courseLines, applicationType) {
             materialsFee: line.materialsFee
 
         });
+
+        line.firstPaymentDepositNote = condition.infoNote || "";
 
     }
 
