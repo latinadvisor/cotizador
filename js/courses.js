@@ -180,6 +180,8 @@ function createCourseCard(id, optionId) {
 
             ${createWeeksField(id)}
 
+            ${createStartDateField(id)}
+
         </div>
 
         ${createManualOverrideFields(id)}
@@ -415,6 +417,42 @@ function createWeeksField(id) {
             <option value="">Seleccionar</option>
 
         </select>
+
+    </div>
+
+    `;
+
+}
+
+/*==========================================================
+ CAMPO "FECHA DE INICIO DEL CURSO" (decisión confirmada del
+ cliente, 2026-10-09)
+ ----------------------------------------------------------
+ input[type="date"] nativo: el navegador ya muestra un calendario
+ al hacer clic, sin ninguna librería aparte. Puramente informativo
+ por ahora — no participa en ningún cálculo de pricing.js, solo
+ viaja junto con el resto de datos del curso (ver getAllCoursesData
+ más abajo) por si GHL/el PDF lo necesitan más adelante. Opcional:
+ un campo vacío no bloquea "Calcular Cotización".
+==========================================================*/
+
+function createStartDateField(id) {
+
+    return `
+
+    <div
+        class="form-group"
+        id="startDateField_${id}">
+
+        <label for="start_date_${id}">
+
+            Fecha de inicio del curso
+
+        </label>
+
+        <input
+            type="date"
+            id="start_date_${id}">
 
     </div>
 
@@ -1012,6 +1050,9 @@ function getAllCoursesData(optionId) {
             // Obligatorio en todos los tipos de aplicación — ver
             // database.js#resolveWeeklyRate.
             schedule: document.getElementById(`schedule_${id}`).value,
+
+            // Puramente informativo — ver createStartDateField más arriba.
+            startDate: document.getElementById(`start_date_${id}`).value,
 
             // Solo tiene efecto en Onshore — ver
             // pricing.js#applyInstitutionEnrollmentFeeRule.

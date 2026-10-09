@@ -1415,11 +1415,21 @@ async function fetchOffshoreExtraCosts(destination) {
  cotizador compara TODAS las ciudades de estudio de TODAS las
  opciones de colegio y usa la más cara, igual que cualquier otro
  servicio "compartido" — ver esa función para el detalle completo).
+
+ SIM CARD (decisión confirmada del cliente, 2026-10-09): deja de
+ ser un checkbox propio — siempre que se seleccione Airport Pickup,
+ se regala gratis junto con la recogida (pricing.js#calculateServicesLines
+ agrega "+ SIM Card" al nombre de esa línea, sin cobrar nada aparte).
+ La fila "SIM Card" de la hoja se mantiene (por si se vuelve a vender
+ sola en el futuro) pero fetchServiceCatalog() ya no la expone como
+ opción seleccionable.
 ==========================================================*/
 
 const AIRPORT_PICKUP_PREFIX = "Airport Pickup";
 
 const AIRPORT_PICKUP_CODE = "airport-pickup";
+
+const SIM_CARD_SERVICE_NAME = "SIM Card";
 
 async function fetchServiceCatalog() {
 
@@ -1433,7 +1443,10 @@ async function fetchServiceCatalog() {
 
     const catalog = rows
 
-        .filter(row => !normalize(row["Servicio"]).startsWith(normalize(AIRPORT_PICKUP_PREFIX)))
+        .filter(row =>
+            !normalize(row["Servicio"]).startsWith(normalize(AIRPORT_PICKUP_PREFIX)) &&
+            normalize(row["Servicio"]) !== normalize(SIM_CARD_SERVICE_NAME)
+        )
 
         .map(row => ({
 

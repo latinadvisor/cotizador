@@ -592,6 +592,12 @@ function buildQuotationLines(quote) {
 
         weeks: course.officialWeeks || course.requestedWeeks || 0,
 
+        // Fecha de inicio del curso (ver courses.js#createStartDateField) —
+        // puramente informativo, viaja a GHL tal cual la escribió la
+        // asesora (formato "AAAA-MM-DD" del input[type=date], o "" si no
+        // se llenó).
+        start_date: course.startDate || "",
+
         price: course.price,
 
         enrollment_fee: course.enrollmentFee,

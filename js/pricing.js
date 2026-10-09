@@ -478,7 +478,11 @@ async function calculateCourseLine(course, country, applicationType) {
 
         // Informativo — permite que PDF/resumen señalen que este curso
         // tiene valores editados manualmente, si se desea en el futuro.
-        isManualOverride
+        isManualOverride,
+
+        // Fecha de inicio del curso (ver courses.js#createStartDateField) —
+        // igual que isManualOverride, puramente informativo por ahora.
+        startDate: course.startDate || ""
 
     };
 
@@ -988,7 +992,11 @@ async function calculateServicesLines(selectedServices, airportPickupRate) {
                     // cliente, 2026-10-07): el PDF debe decir solo "Airport
                     // Pickup", aunque el monto por dentro sí dependa de la
                     // ciudad resuelta (ver resolveBestAirportPickupRate).
-                    label: AIRPORT_PICKUP_PREFIX,
+                    // "+ SIM Card" (pedido explícito del cliente, 2026-10-09):
+                    // toda recogida en aeropuerto regala la SIM Card, sin
+                    // cobrar nada aparte (ver database.js#SIM_CARD_SERVICE_NAME
+                    // — ya no existe como checkbox propio).
+                    label: `${AIRPORT_PICKUP_PREFIX} + SIM Card`,
 
                     shortLabel: catalogEntry ? catalogEntry.shortLabel : AIRPORT_PICKUP_PREFIX,
 

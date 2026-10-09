@@ -328,7 +328,41 @@ async function buildMoneyContext(baseCurrency, currencyPair) {
 
     ]);
 
-    return { primaryCurrency, primaryRate, secondaryCurrency, secondaryRate };
+    // Ver fx.js#getFxMeta — solo lee del caché que los dos fetch de arriba
+    // ya llenaron, nunca dispara una petición aparte. Null si la API falló
+    // o si primaryCurrency/secondaryCurrency eran ambas igual a
+    // baseCurrency (ningún fetch real llegó a hacerse).
+    const fxMeta = getFxMeta(baseCurrency);
+
+    // Link que debe ver el estudiante en la nota del PDF (decisión
+    // confirmada del cliente, 2026-10-09: tiene que poder abrirlo y VER
+    // la tasa, en una fuente que reconozca como confiable, coincidiendo
+    // con el número impreso). Para AUD es la página oficial de
+    // estadísticas del Reserve Bank of Australia (ver
+    // fx.js#fetchRbaRates/worker/ghl-relay.js#handleFxRbaRates); para
+    // cualquier otra moneda base cae al request JSON del respaldo
+    // comercial (menos ideal para un humano, pero sigue siendo el MISMO
+    // request que resolvió el número — nunca un conversor de terceros
+    // que podría mostrar otro valor).
+    const fxVerifyUrl = fxMeta ? fxMeta.sourceUrl : null;
+
+    return {
+
+        primaryCurrency,
+
+        primaryRate,
+
+        secondaryCurrency,
+
+        secondaryRate,
+
+        fxProvider: fxMeta ? fxMeta.provider : null,
+
+        fxLastUpdateUtc: fxMeta ? fxMeta.lastUpdateUtc : null,
+
+        fxVerifyUrl
+
+    };
 
 }
 
@@ -946,7 +980,9 @@ function buildCostTableSection(quote, moneyCtx) {
 
     const content = [
 
-        { text: "DESGLOSE DE COSTOS", style: "sectionTitle" },
+        // Antes "DESGLOSE DE COSTOS" — se acortó a solo "COSTOS" (pedido
+        // explícito del cliente, 2026-10-09).
+        { text: "COSTOS", style: "sectionTitle" },
 
         {
 
@@ -1207,6 +1243,46 @@ function collectNotes(quote, moneyCtx) {
         "Los valores del seguro médico pueden estar sujetos a cambios y variar de acuerdo con el tiempo de permanencia en Australia aprobado por el Gobierno Australiano."
 
     ];
+
+    /*
+        Fuente del tipo de cambio (decisión confirmada del cliente,
+        2026-10-09): el link es la página oficial del Reserve Bank of
+        Australia (banco central de verdad) cuando la moneda base es AUD
+        — ver fx.js/worker/ghl-relay.js#handleFxRbaRates — una tabla
+        legible donde cualquier persona ve la tasa del día sin leer JSON
+        técnico. El cálculo del PDF usa ESA MISMA fuente, así que el
+        número coincide mientras la tasa del día no haya cambiado. Nunca
+        la página de mercadeo de exchangerate-api.com (verificado: no
+        tiene ninguna herramienta visual de consulta) ni un conversor de
+        terceros tipo XE (actualiza con su propia frecuencia/fuente y casi
+        nunca va a coincidir con el número que ya se usó aquí, confundiendo
+        al estudiante). Se omite la nota por completo si ambas fuentes
+        fallaron (fxVerifyUrl null), en vez de inventar un link.
+    */
+    if (moneyCtx.fxVerifyUrl) {
+
+        // Misma convención de fecha que "Fecha de elaboración de la
+        // cotización" más arriba (es-CO, D/M/AAAA) — la API entrega la
+        // fecha en inglés/UTC ("Fri, 09 Oct 2026..."), no apta para
+        // mostrarla tal cual en un PDF en español.
+        const updateDate = moneyCtx.fxLastUpdateUtc ? new Date(moneyCtx.fxLastUpdateUtc) : null;
+
+        // timeZone: "UTC" fuerza a leer la fecha tal cual la entregó la API
+        // (ya es UTC) — sin esto, el huso horario del navegador de la
+        // asesora podría correrla un día para atrás o adelante.
+        const updateDateText = (updateDate && !Number.isNaN(updateDate.getTime()))
+            ? ` (actualizada el ${updateDate.toLocaleDateString("es-CO", { timeZone: "UTC" })})`
+            : "";
+
+        notes.push({
+
+            text: `El tipo de cambio ${moneyCtx.primaryCurrency}/${moneyCtx.secondaryCurrency} usado en esta cotización${updateDateText} puede verificarse en el siguiente enlace — es la misma fuente consultada para este cálculo, para garantizar que el valor coincida exacto: ${moneyCtx.fxVerifyUrl}`,
+
+            link: moneyCtx.fxVerifyUrl
+
+        });
+
+    }
 
     if (hasExtraCosts) {
 
