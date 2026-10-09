@@ -694,9 +694,17 @@ function attachCourseCardEvents(id) {
         2026-10-10): por defecto, un input[type="date"] solo abre el
         calendario nativo al hacer clic en el icono pequeño de la
         derecha — showPicker() lo abre al hacer clic en CUALQUIER parte
-        de la casilla. Soportado en navegadores basados en Chromium (el
-        caso real de uso); si el navegador no lo soporta, el clic
-        simplemente enfoca el campo como ya hacía antes (no rompe nada).
+        de la casilla. Soportado en navegadores basados en Chromium.
+
+        .focus() ANTES de showPicker() (algunas versiones de Chrome
+        exigen que el campo ya esté enfocado en el momento exacto de la
+        llamada, si no, showPicker() lanza una excepción en silencio y
+        el calendario no abre, sin ningún otro síntoma visible) y
+        try/catch por si el navegador no soporta showPicker() (ej.
+        Firefox/Safari viejos) o lo bloquea (ej. dentro de un iframe con
+        restricciones de permisos, como podría pasar embebido en GHL) —
+        en cualquiera de los dos casos, el clic igual enfoca el campo,
+        comportamiento nativo de siempre, nunca rompe nada.
     */
     const startDateInput = document.getElementById(`start_date_${id}`);
 
@@ -704,7 +712,17 @@ function attachCourseCardEvents(id) {
 
         startDateInput.addEventListener("click", () => {
 
-            if (typeof startDateInput.showPicker === "function") startDateInput.showPicker();
+            try {
+
+                startDateInput.focus();
+
+                if (typeof startDateInput.showPicker === "function") startDateInput.showPicker();
+
+            } catch (error) {
+
+                // Ver comentario de arriba — degradación silenciosa.
+
+            }
 
         });
 
