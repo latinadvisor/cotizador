@@ -1490,10 +1490,13 @@ async function fetchInsuranceCost({ insuranceName, quotationType, totalWeeks }) 
  jerarquía de siempre vía COURSE_TYPE_PRIORITY):
    - "Valor visa"            -> el aplicante principal (Single)
    - "Visa Couple"           -> SE SUMA si el Tipo de Cotización
-                                es Couple o Family (la pareja)
-   - "Visa menor de edad"    -> SE SUMA × cantidad de menores,
-                                SOLO si el Tipo de Cotización es
-                                Family
+                                es Couple o Family (la pareja) —
+                                NUNCA en Single Parent (no hay
+                                segundo adulto)
+   - "Visa menor de edad"    -> SE SUMA × cantidad de menores, si
+                                el Tipo de Cotización es Family o
+                                Single Parent (2026-10-10: 1 adulto
+                                + menores, sin pareja)
  "Visa Couple"/"Visa menor de edad" pueden venir vacías (ej. fila
  de España) — se tratan como 0, nunca rompen el cálculo.
 ==========================================================*/
@@ -1521,7 +1524,11 @@ async function fetchVisaCost({ destination, courseTypes, quotationType, numberOf
 
     const minorRate = Number(row["Visa menor de edad"]) || 0;
 
-    const minors = normalize(quotationType) === normalize("Family") ? Math.max(0, Number(numberOfMinors) || 0) : 0;
+    // "Single Parent" (decisión confirmada del cliente, 2026-10-10) también
+    // lleva menor(es) de edad — 1 adulto + menores, sin componente de pareja.
+    const hasMinors = [normalize("Family"), normalize("Single Parent")].includes(normalize(quotationType));
+
+    const minors = hasMinors ? Math.max(0, Number(numberOfMinors) || 0) : 0;
 
     return { singleRate, coupleRate, minorRate, numberOfMinors: minors, primaryType, found: true };
 

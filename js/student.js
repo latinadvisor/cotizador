@@ -454,7 +454,16 @@ function createStudentCard() {
 
             "Couple",
 
-            "Family"
+            "Family",
+
+            // "Single Parent" (decisión confirmada del cliente, 2026-10-10):
+            // 1 adulto + menor(es) de edad — sin componente de pareja. El
+            // texto debe coincidir EXACTO con la columna nueva que hay que
+            // agregar en la hoja "Seguros" (hoy no existe esa columna, el
+            // Seguro médico quedará bloqueado con aviso hasta que se
+            // agregue con sus propias tarifas por plan/duración) — ver
+            // database.js#fetchInsuranceCost/fetchVisaCost.
+            "Single Parent"
 
         ]
 
@@ -591,7 +600,9 @@ function toggleNumberOfMinorsField(quotationType) {
 
     if (!field) return;
 
-    field.classList.toggle("hidden", quotationType !== "Family");
+    // "Single Parent" también tiene menor(es) de edad (1 adulto + menores)
+    // — ver database.js#fetchVisaCost.
+    field.classList.toggle("hidden", quotationType !== "Family" && quotationType !== "Single Parent");
 
 }
 

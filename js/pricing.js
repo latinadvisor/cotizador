@@ -762,7 +762,9 @@ async function calculateVisa({ courseLines, destination, quotationType, numberOf
 
     const includesCouple = type === normalize("Couple") || type === normalize("Family");
 
-    const includesMinors = type === normalize("Family");
+    // "Single Parent" (decisión confirmada del cliente, 2026-10-10): 1
+    // adulto + menor(es), nunca pareja.
+    const includesMinors = type === normalize("Family") || type === normalize("Single Parent");
 
     return {
 

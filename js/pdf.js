@@ -1343,18 +1343,22 @@ function collectNotes(quote, moneyCtx) {
         Maestría by Research — Visa del dependiente (decisión confirmada
         del cliente, 2026-10-09 y 2026-10-10, ver hoja "Visas" columna F,
         fila HE/Australia): dos notas distintas, mutuamente excluyentes
-        (Family y Couple no se dan juntas en la misma cotización — ver
-        quotation_type), cada una avisando sobre un dependiente distinto
-        que un programa de maestría by research podría eximir del pago de
-        visa. Ninguna resta nada automáticamente — hoy no existe en
-        "Cursos" ninguna forma de identificar que un programa puntual ES
-        "by research" (0 filas HE cargadas todavía), así que ambas quedan
-        como advertencia para que la asesora confirme el caso con el
-        equipo de visa, igual que ya se hace con Costos Extras.
+        (quotation_type nunca es dos cosas a la vez), cada una avisando
+        sobre un dependiente distinto que un programa de maestría by
+        research podría eximir del pago de visa — "Family" y "Single
+        Parent" comparten la misma nota (ambas tienen menor de edad, sin
+        pareja en Single Parent). Ninguna resta nada automáticamente — hoy
+        no existe en "Cursos" ninguna forma de identificar que un programa
+        puntual ES "by research" (0 filas HE cargadas todavía), así que
+        ambas quedan como advertencia para que la asesora confirme el
+        caso con el equipo de visa, igual que ya se hace con Costos
+        Extras.
     */
     const visa = quote.visa || {};
 
-    if (visa.primaryType === "HE" && visa.quotationType === "Family" && visa.numberOfMinors > 0) {
+    const hasMinorException = visa.quotationType === "Family" || visa.quotationType === "Single Parent";
+
+    if (visa.primaryType === "HE" && hasMinorException && visa.numberOfMinors > 0) {
 
         notes.push("Si el programa corresponde a una maestría by research (Higher Education), el menor de edad no paga el valor de la visa — verifica esta condición con el equipo de visa antes de confirmar el costo final.");
 
