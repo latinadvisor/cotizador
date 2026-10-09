@@ -478,6 +478,18 @@ function createStudentCard() {
 
     });
 
+    /*
+        Decisión confirmada del cliente, 2026-10-09: la Visa ya no se
+        cobra "tarifa × Cantidad de Aplicantes" — ahora se arma por
+        componentes según "Tipo de Cotización" (ver
+        database.js#fetchVisaCost/pricing.js#calculateVisa): Single = solo
+        el aplicante principal, Couple = + pareja, Family = + pareja +
+        menor(es) de edad. Este campo SOLO se muestra cuando Tipo de
+        Cotización = Family (ver toggleNumberOfMinorsField/wireStudentCardEvents
+        más abajo) — oculto en Single/Couple, donde no aplica.
+    */
+    html += createNumberOfMinorsField();
+
 
 
     html += createSelect({
@@ -536,6 +548,53 @@ function createStudentCard() {
  BÚSQUEDA DE LEAD EN GOHIGHLEVEL
 ==========================================================*/
 
+/*==========================================================
+ CAMPO "CANTIDAD DE MENORES DE EDAD" (SOLO TIPO DE COTIZACIÓN = FAMILY)
+ ----------------------------------------------------------
+ Decisión confirmada del cliente, 2026-10-09: oculto por defecto
+ (el valor inicial de "Tipo de Cotización" es "Single"), solo se
+ muestra cuando la asesora elige "Family" — ver
+ database.js#fetchVisaCost/pricing.js#calculateVisa para dónde se
+ usa el valor.
+==========================================================*/
+
+function createNumberOfMinorsField() {
+
+    return `
+
+    <div
+        class="form-group hidden"
+        id="numberOfMinorsField">
+
+        <label for="number_of_minors">
+
+            Cantidad de Menores de Edad
+
+        </label>
+
+        <input
+            id="number_of_minors"
+            type="number"
+            min="0"
+            step="1"
+            placeholder="0">
+
+    </div>
+
+    `;
+
+}
+
+function toggleNumberOfMinorsField(quotationType) {
+
+    const field = document.getElementById("numberOfMinorsField");
+
+    if (!field) return;
+
+    field.classList.toggle("hidden", quotationType !== "Family");
+
+}
+
 function wireStudentCardEvents() {
 
     const button = document.getElementById("btnSearchLead");
@@ -567,6 +626,25 @@ function wireStudentCardEvents() {
         applicationTypeSelect.addEventListener("change", () => {
 
             if (typeof refreshExistingStudentFieldsVisibility === "function") refreshExistingStudentFieldsVisibility();
+
+        });
+
+    }
+
+    /*
+        "Cantidad de Menores de Edad" solo se muestra con Tipo de
+        Cotización = "Family" — ver createNumberOfMinorsField más arriba.
+    */
+
+    const quotationTypeSelect = document.getElementById("quotation_type");
+
+    if (quotationTypeSelect) {
+
+        toggleNumberOfMinorsField(quotationTypeSelect.value);
+
+        quotationTypeSelect.addEventListener("change", () => {
+
+            toggleNumberOfMinorsField(quotationTypeSelect.value);
 
         });
 
@@ -883,6 +961,10 @@ function getStudentData() {
         quotation_type: document.getElementById("quotation_type").value,
 
         number_applicants: Number(document.getElementById("number_applicants").value) || 1,
+
+        // Ver database.js#fetchVisaCost — solo se usa cuando quotation_type
+        // es "Family", ignorado en Single/Couple.
+        number_of_minors: Number(document.getElementById("number_of_minors").value) || 0,
 
         insurance: document.getElementById("insurance").value
 

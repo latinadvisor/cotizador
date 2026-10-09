@@ -177,7 +177,9 @@ async function calculateOptionQuote(courseOption, shared) {
 
         destination: shared.student.destination,
 
-        numberApplicants: shared.student.number_applicants
+        quotationType: shared.student.quotation_type,
+
+        numberOfMinors: shared.student.number_of_minors
 
     });
 
@@ -187,7 +189,17 @@ async function calculateOptionQuote(courseOption, shared) {
     // opción, no por curso, así que no tiene sentido "ser gratis a medias".
     if (courseLines.some(line => line.waiveInsurance)) insurance.cost = 0;
 
-    if (courseLines.some(line => line.waiveVisa)) visa.cost = 0;
+    if (courseLines.some(line => line.waiveVisa)) {
+
+        visa.cost = 0;
+
+        visa.singleAmount = 0;
+
+        visa.coupleAmount = 0;
+
+        visa.minorAmount = 0;
+
+    }
 
     const promotionsApplied = collectPromotionsApplied(courseLines);
 
@@ -567,18 +579,21 @@ function applyInstitutionEnrollmentFeeRule(courseLines, applicationType) {
  Reemplaza a la antigua columna "Primer deposito" de "Cursos". La
  condición de cada Colegio vive en la pestaña "Primer depósito
  Onshore" (ver database.js#fetchOnshoreDepositCondition/
- computeOnshoreDepositBase) — aquí solo se orquesta CUÁNDO se
- calcula: DESPUÉS de applyInstitutionEnrollmentFeeRule(), para que
+ computeOnshoreDeposit) — aquí solo se orquesta CUÁNDO se calcula:
+ DESPUÉS de applyInstitutionEnrollmentFeeRule(), para que
  line.enrollmentFee/line.materialsFee ya sean los valores
  definitivos (netos de matrícula única por colegio y de cualquier
  promoción de matrícula/materiales gratis) — exactamente los que
  pide sumar la fórmula.
 
- Fórmula (decisión confirmada del cliente, 2026-10-07 — 3 tipos de
- condición, ver database.js#ONSHORE_DEPOSIT_CONDITION_TYPES):
+ Fórmula (decisión confirmada del cliente — 4 tipos de condición,
+ ver database.js#ONSHORE_DEPOSIT_CONDITION_TYPES):
    "Valor fijo"                                   -> Depósito = Parámetro (solo eso, sin fees)
    "Valor + Matricula + Materiales"                -> Depósito = Parámetro + Matrícula + Materiales
    "Semanas de estudio + Matricula + Materiales"   -> Depósito = (tarifa semanal Onshore cotizada × Parámetro) + Matrícula + Materiales
+   "Tiempo + Matricula + Materiales" (2026-10-09,
+   ej. Impact College, varios tramos por Duración
+   vía "condición extra")                          -> Depósito = (Parámetro% × Curso neto de descuento) + Matrícula + Materiales
 
  Si el Colegio no tiene fila en esa pestaña, O la tiene pero con un
  "Tipo de condición" vacío/no reconocido, el depósito de ese curso
@@ -597,12 +612,16 @@ async function applyOnshoreFirstPaymentDeposits(courseLines, applicationType) {
 
     for (const line of courseLines) {
 
-        const condition = await fetchOnshoreDepositCondition(line.college);
+        // officialWeeks: necesario para colegios con varios tramos de
+        // "condición extra" (ej. Impact College) — ver
+        // database.js#fetchOnshoreDepositCondition.
+        const condition = await fetchOnshoreDepositCondition(line.college, line.officialWeeks);
 
-        // Sin fila, o con "Tipo de condición" vacío/no reconocido (ver
-        // database.js#fetchOnshoreDepositCondition) — ambos casos avisan y
-        // bloquean, en vez de mostrar un depósito de $0 de base en
-        // silencio (decisión confirmada del cliente, 2026-10-07).
+        // Sin fila, con "Tipo de condición" vacío/no reconocido, o
+        // ningún tramo de "condición extra" que cubra la Duración real
+        // del curso (ver database.js#fetchOnshoreDepositCondition) —
+        // todos los casos avisan y bloquean, en vez de mostrar un
+        // depósito de $0 en silencio (decisión confirmada del cliente).
         if (!condition.found || !condition.recognized) {
 
             line.firstPaymentDeposit = 0;
@@ -613,9 +632,19 @@ async function applyOnshoreFirstPaymentDeposits(courseLines, applicationType) {
 
         }
 
-        const { base, includesFees } = computeOnshoreDepositBase(condition, line.onshoreWeeklyRate);
+        line.firstPaymentDeposit = computeOnshoreDeposit(condition, {
 
-        line.firstPaymentDeposit = includesFees ? (base + line.enrollmentFee + line.materialsFee) : base;
+            onshoreWeeklyRate: line.onshoreWeeklyRate,
+
+            price: line.price,
+
+            priceDiscount: line.priceDiscount,
+
+            enrollmentFee: line.enrollmentFee,
+
+            materialsFee: line.materialsFee
+
+        });
 
     }
 
@@ -699,13 +728,27 @@ async function calculateInsurance({ insuranceName, totalWeeks, quotationType }) 
 
 const VISA_CREDIT_CARD_SURCHARGE_RATE = 0.014;
 
-async function calculateVisa({ courseLines, destination, numberApplicants }) {
+async function calculateVisa({ courseLines, destination, quotationType, numberOfMinors }) {
 
     const courseTypes = [...new Set(courseLines.map(line => line.type).filter(Boolean))];
 
-    const result = await fetchVisaCost({ destination, courseTypes, numberApplicants });
+    const result = await fetchVisaCost({ destination, courseTypes, quotationType, numberOfMinors });
 
-    const perApplicant = result.perApplicant * (1 + VISA_CREDIT_CARD_SURCHARGE_RATE);
+    // El 1.4% se aplica a CADA componente por separado (no al total final)
+    // — algebraicamente da lo mismo (ver VISA_CREDIT_CARD_SURCHARGE_RATE),
+    // pero así el PDF puede mostrar cada línea (persona/pareja/menor) YA
+    // con el recargo incluido, sin tener que repartirlo después.
+    const singleAmount = result.singleRate * (1 + VISA_CREDIT_CARD_SURCHARGE_RATE);
+
+    const coupleAmount = result.coupleRate * (1 + VISA_CREDIT_CARD_SURCHARGE_RATE);
+
+    const minorAmount = result.minorRate * result.numberOfMinors * (1 + VISA_CREDIT_CARD_SURCHARGE_RATE);
+
+    const type = normalize(quotationType);
+
+    const includesCouple = type === normalize("Couple") || type === normalize("Family");
+
+    const includesMinors = type === normalize("Family");
 
     return {
 
@@ -713,9 +756,21 @@ async function calculateVisa({ courseLines, destination, numberApplicants }) {
 
         primaryType: result.primaryType,
 
-        numberApplicants,
+        quotationType,
 
-        cost: perApplicant * numberApplicants,
+        numberOfMinors: result.numberOfMinors,
+
+        // Desglose para pdf.js#buildCostTableSection — cada uno YA trae el
+        // 1.4% incluido. "coupleAmount"/"minorAmount" quedan en 0 cuando no
+        // aplican (Single, o Family sin menores), para que una línea $0 no
+        // aparezca en el PDF (ver el "if" de cada fila ahí).
+        singleAmount,
+
+        coupleAmount: includesCouple ? coupleAmount : 0,
+
+        minorAmount: includesMinors ? minorAmount : 0,
+
+        cost: singleAmount + (includesCouple ? coupleAmount : 0) + (includesMinors ? minorAmount : 0),
 
         found: result.found
 
@@ -1295,7 +1350,13 @@ function collectWarnings({ courses, courseLines, insurance, visa, student }) {
 
     courseLines.forEach((line, index) => {
 
-        if (!line.found && line.college && line.program) {
+        // Modo Manual existe justo para cursos/programas que NO están en
+        // la hoja "Cursos" (negociaciones especiales, programas nuevos) —
+        // ver courses.js#createManualOverrideFields. Si está activo, que
+        // el catálogo no tenga esa combinación es esperado, no un error
+        // que deba bloquear "Generar Cotización" (decisión confirmada del
+        // cliente, 2026-10-09).
+        if (!line.found && line.college && line.program && !line.isManualOverride) {
 
             warnings.push(
 

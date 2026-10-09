@@ -1186,27 +1186,46 @@ async function fetchCourseDetails({ college, city, type, program, weeks, schedul
  PRIMER DEPÓSITO ONSHORE (pestaña "Primer depósito Onshore")
  ----------------------------------------------------------
  Reemplaza a la antigua columna "Primer deposito" de "Cursos"
- (eliminada) — ahora la condición vive UNA vez por Colegio en su
- propia pestaña (Colegio, Tipo de condición, Parámetro), para
+ (eliminada) — ahora la condición vive en su propia pestaña
+ (Colegio, Tipo de condición, Parámetro, condición extra), para
  poder ajustarla sin tocar código. Solo aplica a Onshore.
 
- Tipos de condición soportados hoy (decisión confirmada del
- cliente, 2026-10-07 — reemplaza la versión anterior de 2 tipos,
- donde "Valor fijo" SÍ sumaba Matrícula/Materiales):
+ Tipos de condición soportados hoy:
    - "Valor fijo": el depósito ES directamente el Parámetro, sin
      sumar nada más — ni Matrícula ni Materiales.
    - "Valor + Matricula + Materiales": el depósito = Parámetro +
-     Matrícula + Materiales del curso (este es el comportamiento
-     que ANTES se llamaba "Valor fijo" — se renombró para dejar
-     "Valor fijo" como el valor puro, sin fees).
+     Matrícula + Materiales del curso.
    - "Semanas de estudio + Matricula + Materiales" (también se
      acepta la forma vieja, sin el sufijo, por compatibilidad): el
      Parámetro es un número de semanas; depósito = (tarifa semanal
-     Onshore cotizada × ese número) + Matrícula + Materiales (sin
-     tope — se usa el parámetro completo siempre).
+     Onshore cotizada × ese número) + Matrícula + Materiales.
+   - "Tiempo + Matricula + Materiales" (decisión confirmada del
+     cliente, 2026-10-09 — ej. Impact College): el Parámetro es un
+     PORCENTAJE que aplica SOLO al curso; depósito = (Parámetro% ×
+     Curso) + Matrícula + Materiales (estas 2 últimas COMPLETAS,
+     nunca prorrateadas). Único tipo que admite VARIAS filas para
+     el mismo Colegio — un tramo de "condición extra" por fila (ver
+     más abajo), porque el porcentaje cambia según la duración real del
+     curso cotizado.
 
- Cualquier "Tipo de condición" vacío o que no calce EXACTO con uno
- de los 3 textos de arriba se trata como "no reconocido"
+ "condición extra" (columna D, solo la usa "Tiempo + Matricula +
+ Materiales" hoy, aunque cualquier tipo podría tenerla si en el
+ futuro hiciera falta un tramo): decide CUÁL fila aplica cuando un
+ Colegio tiene más de una. Formatos aceptados (texto libre en la
+ celda, ver parseExtraConditionRange):
+   - "16-23"  -> aplica si la Duración del curso está entre 16 y 23
+                 (ambos inclusive).
+   - "30"     -> un solo número = "30 o más" (sin tope superior).
+   - vacía    -> comodín, aplica a cualquier Duración (es el caso de
+                 TODOS los colegios con una sola fila, como siempre).
+ Si un Colegio tiene varias filas, se usa la PRIMERA cuyo rango
+ calce con la Duración real del curso — si ninguna calza, se trata
+ como "no reconocido" (ver más abajo), igual que un Tipo de
+ condición vacío: nunca se inventa un porcentaje.
+
+ Cualquier "Tipo de condición" vacío, que no calce EXACTO con uno
+ de los textos de arriba, o cuya "condición extra" no cubra la
+ Duración real del curso, se trata como "no reconocido"
  (recognized:false) — pricing.js#applyOnshoreFirstPaymentDeposits
  lo marca igual que "colegio sin fila" (firstPaymentDepositMissing
  = true), para que collectWarnings() avise y bloquee ANTES de
@@ -1214,13 +1233,13 @@ async function fetchCourseDetails({ college, city, type, program, weeks, schedul
  confirmada del cliente: nunca más un depósito incompleto sin
  aviso).
 
- Matrícula/Materiales que se suman en los 2 tipos que los llevan
- son los YA RESUELTOS de ese curso (netos de la regla de matrícula
- única por colegio y de cualquier promoción de matrícula/materiales
- gratis) — por eso el armado final del depósito no puede vivir
- aquí: se ejecuta en pricing.js DESPUÉS de
- applyInstitutionEnrollmentFeeRule(), cuando esos valores ya son
- definitivos.
+ Matrícula/Materiales/Curso que se usan en el cálculo son los YA
+ RESUELTOS de ese curso (netos de la regla de matrícula única por
+ colegio, de cualquier promoción de matrícula/materiales gratis, y
+ del descuento de precio del curso si lo tuviera) — por eso el
+ armado final del depósito no puede vivir aquí: se ejecuta en
+ pricing.js DESPUÉS de applyInstitutionEnrollmentFeeRule(), cuando
+ esos valores ya son definitivos.
 */
 
 const ONSHORE_DEPOSIT_CONDITION_TYPES = {
@@ -1234,17 +1253,83 @@ const ONSHORE_DEPOSIT_CONDITION_TYPES = {
     // Alias legado: antes de este cambio, este era el ÚNICO texto para el
     // cálculo por semanas (sin el sufijo "+ Matricula + Materiales”) — se
     // sigue aceptando para no romper ninguna fila que no se haya migrado.
-    SEMANAS_LEGACY: normalize("Semanas de estudio")
+    SEMANAS_LEGACY: normalize("Semanas de estudio"),
+
+    PORCENTAJE_POR_DURACION: normalize("Tiempo + Matricula + Materiales")
 
 };
 
-async function fetchOnshoreDepositCondition(college) {
+/*
+    Sentinela INTERNO (nunca un texto que se escriba en el Sheet) — ver
+    fetchOnshoreDepositCondition/computeOnshoreDeposit más abajo: marca el
+    caso "ningún tramo de condición extra cubre esta Duración", que cobra
+    el 100% en vez de bloquear.
+*/
+const NO_BRACKET_MATCH_SENTINEL = "__sin_tramo_cobra_100__";
+
+/*
+    Interpreta el texto libre de "condición extra" — ver cabecera de esta
+    sección para los formatos aceptados. Devuelve null si la celda está
+    vacía (comodín, aplica siempre) o si el texto no calza ningún formato
+    reconocido (en ese caso matchesExtraCondition() lo trata como "no
+    aplica", nunca como comodín, para no aplicar un tramo mal escrito por
+    accidente).
+*/
+function parseExtraConditionRange(rawExtraCondition) {
+
+    const raw = String(rawExtraCondition == null ? "" : rawExtraCondition).trim();
+
+    if (raw === "") return { wildcard: true };
+
+    const rangeMatch = raw.match(/^(\d+)\s*-\s*(\d+)$/);
+
+    if (rangeMatch) return { wildcard: false, min: Number(rangeMatch[1]), max: Number(rangeMatch[2]) };
+
+    const single = Number(raw);
+
+    if (!Number.isNaN(single)) return { wildcard: false, min: single, max: Infinity };
+
+    return null;
+
+}
+
+function matchesExtraCondition(rawExtraCondition, officialWeeks) {
+
+    const range = parseExtraConditionRange(rawExtraCondition);
+
+    if (!range) return false;
+
+    if (range.wildcard) return true;
+
+    return officialWeeks >= range.min && officialWeeks <= range.max;
+
+}
+
+async function fetchOnshoreDepositCondition(college, officialWeeks) {
 
     const { primerDepositoOnshore } = await loadAllSheetsData();
 
-    const row = primerDepositoOnshore.find(r => normalize(r["Colegio"]) === normalize(college));
+    const candidates = primerDepositoOnshore.filter(r => normalize(r["Colegio"]) === normalize(college));
 
-    if (!row) return { found: false, recognized: false, tipo: "", parametro: 0 };
+    if (candidates.length === 0) return { found: false, recognized: false, tipo: "", parametro: 0 };
+
+    // La mayoría de colegios tiene UNA sola fila con "condición extra"
+    // vacía (comodín, calza siempre) — los que tienen varias (ej. Impact
+    // College) dependen de que la Duración real del curso caiga en el
+    // tramo correcto.
+    const row = candidates.find(r => matchesExtraCondition(r["condición extra"], officialWeeks));
+
+    /*
+        Ningún tramo cubre esta Duración (ej. Impact College con un curso
+        de 10 o 12 semanas, fuera de 16-23/24-29/30+) — decisión
+        confirmada del cliente, 2026-10-09: en ese caso el Primer Pago NO
+        se bloquea ni avisa (no es un dato faltante) — se cobra el 100%
+        del curso (neto de cualquier descuento real) + Matrícula +
+        Materiales, exactamente el "Total Programa" de ese curso, sin
+        ningún descuento de depósito. Ver NO_BRACKET_MATCH_SENTINEL /
+        computeOnshoreDeposit más abajo.
+    */
+    if (!row) return { found: true, recognized: true, tipo: NO_BRACKET_MATCH_SENTINEL, parametro: 0 };
 
     const tipo = normalize(row["Tipo de condición"]);
 
@@ -1265,27 +1350,54 @@ async function fetchOnshoreDepositCondition(college) {
 }
 
 /*
-    Devuelve { base, includesFees } — "includesFees" le dice a
-    pricing.js#applyOnshoreFirstPaymentDeposits si además debe sumar
-    Matrícula/Materiales, o si el depósito es el valor puro. Para un tipo
-    no reconocido devuelve base 0 / includesFees false — el llamador ya
-    revisa "recognized" aparte para decidir si avisar.
+    Calcula el depósito final directamente (ya no un "base" +
+    "includesFees" separados — el tipo por porcentaje necesita el precio
+    del curso además de Matrícula/Materiales, así que cada rama arma su
+    propio total). "price"/"priceDiscount"/"enrollmentFee"/"materialsFee"
+    son los valores YA DEFINITIVOS del curso (ver cabecera de la
+    sección) — "price - priceDiscount" es el precio del curso neto de
+    cualquier descuento, nunca el de catálogo sin descontar.
 */
-function computeOnshoreDepositBase(condition, onshoreWeeklyRate) {
+function computeOnshoreDeposit(condition, { onshoreWeeklyRate, price, priceDiscount, enrollmentFee, materialsFee }) {
 
     const T = ONSHORE_DEPOSIT_CONDITION_TYPES;
 
-    if (condition.tipo === T.VALOR_FIJO) return { base: condition.parametro, includesFees: false };
+    // Ningún tramo de "condición extra" cubrió esta Duración — decisión
+    // confirmada del cliente, 2026-10-09: se cobra el 100% (el "Total
+    // Programa" de ese curso, neto de cualquier descuento real, sin
+    // ningún descuento de depósito encima).
+    if (condition.tipo === NO_BRACKET_MATCH_SENTINEL) {
 
-    if (condition.tipo === T.VALOR_MAS_FEES) return { base: condition.parametro, includesFees: true };
-
-    if (condition.tipo === T.SEMANAS_MAS_FEES || condition.tipo === T.SEMANAS_LEGACY) {
-
-        return { base: onshoreWeeklyRate * condition.parametro, includesFees: true };
+        return Math.max(0, price - priceDiscount) + enrollmentFee + materialsFee;
 
     }
 
-    return { base: 0, includesFees: false };
+    if (condition.tipo === T.VALOR_FIJO) return condition.parametro;
+
+    if (condition.tipo === T.VALOR_MAS_FEES) return condition.parametro + enrollmentFee + materialsFee;
+
+    if (condition.tipo === T.SEMANAS_MAS_FEES || condition.tipo === T.SEMANAS_LEGACY) {
+
+        return (onshoreWeeklyRate * condition.parametro) + enrollmentFee + materialsFee;
+
+    }
+
+    if (condition.tipo === T.PORCENTAJE_POR_DURACION) {
+
+        // El porcentaje aplica SOLO al curso (decisión confirmada del
+        // cliente, 2026-10-09 — corrige una primera versión que lo
+        // aplicaba sobre curso+matrícula+materiales juntos). Matrícula y
+        // Materiales se suman COMPLETOS encima, igual que en los otros
+        // tipos "... + Matricula + Materiales".
+        const netCoursePrice = Math.max(0, price - priceDiscount);
+
+        const courseShare = netCoursePrice * (Math.min(condition.parametro, 100) / 100);
+
+        return courseShare + enrollmentFee + materialsFee;
+
+    }
+
+    return 0;
 
 }
 
@@ -1351,31 +1463,47 @@ async function fetchInsuranceCost({ insuranceName, quotationType, totalWeeks }) 
 
 
 /*==========================================================
- VISA
+ VISA (decisión confirmada del cliente, 2026-10-09)
  ----------------------------------------------------------
- Se cobra UNA sola vez por aplicante, usando el tipo de curso
- de mayor jerarquía presente en la cotización (ver
- COURSE_TYPE_PRIORITY).
+ Ya NO se cobra "tarifa × número de aplicantes" — la hoja "Visas"
+ ahora trae 3 columnas por fila (Destino + Tipo de curso, igual
+ jerarquía de siempre vía COURSE_TYPE_PRIORITY):
+   - "Valor visa"            -> el aplicante principal (Single)
+   - "Visa Couple"           -> SE SUMA si el Tipo de Cotización
+                                es Couple o Family (la pareja)
+   - "Visa menor de edad"    -> SE SUMA × cantidad de menores,
+                                SOLO si el Tipo de Cotización es
+                                Family
+ "Visa Couple"/"Visa menor de edad" pueden venir vacías (ej. fila
+ de España) — se tratan como 0, nunca rompen el cálculo.
 ==========================================================*/
 
-async function fetchVisaCost({ destination, courseTypes, numberApplicants }) {
+async function fetchVisaCost({ destination, courseTypes, quotationType, numberOfMinors }) {
 
     const { visas } = await loadAllSheetsData();
 
     const primaryType = COURSE_TYPE_PRIORITY.find(type => courseTypes.includes(type)) || null;
 
-    if (!primaryType) return { total: 0, perApplicant: 0, primaryType: null, found: false };
+    const empty = { singleRate: 0, coupleRate: 0, minorRate: 0, numberOfMinors: 0, primaryType: null, found: false };
+
+    if (!primaryType) return empty;
 
     const row = visas.find(r =>
         normalize(r["Destino"]) === normalize(destination) &&
         normalizeCourseType(r["Tipo de curso"]) === primaryType
     );
 
-    if (!row) return { total: 0, perApplicant: 0, primaryType, found: false };
+    if (!row) return { ...empty, primaryType };
 
-    const perApplicant = Number(row["Valor visa"]) || 0;
+    const singleRate = Number(row["Valor visa"]) || 0;
 
-    return { total: perApplicant * numberApplicants, perApplicant, primaryType, found: true };
+    const coupleRate = Number(row["Visa Couple"]) || 0;
+
+    const minorRate = Number(row["Visa menor de edad"]) || 0;
+
+    const minors = normalize(quotationType) === normalize("Family") ? Math.max(0, Number(numberOfMinors) || 0) : 0;
+
+    return { singleRate, coupleRate, minorRate, numberOfMinors: minors, primaryType, found: true };
 
 }
 

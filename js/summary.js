@@ -55,6 +55,8 @@ function createSummaryCard() {
 
                 <option value="AUD-USD">AUD - USD</option>
 
+                <option value="AUD-COP">AUD - COP</option>
+
                 <option value="EUR-COP">EUR - COP</option>
 
                 <option value="EUR-USD">EUR - USD</option>
@@ -544,6 +546,39 @@ function describeOptionSchedules(option) {
     const schedules = [...new Set(option.courses.map(course => course.schedule).filter(Boolean))];
 
     return schedules.length > 0 ? schedules.join(" / ") : "-";
+
+}
+
+/*
+    "Fecha de inicio de clases" (decisión confirmada del cliente,
+    2026-10-09) — mismo criterio que describeOptionCities/Schedules, va
+    justo debajo de "Fecha de elaboración de la cotización" en el bloque
+    "Detalles" del PDF (ver pdf.js#buildProgramInfoBlock). La fecha vive
+    en course.startDate (ver courses.js#createStartDateField), formato
+    nativo "AAAA-MM-DD" del input[type=date] — se reformatea a D/M/AAAA
+    (misma convención que el resto del PDF) con texto plano, sin objeto
+    Date, para no arriesgar ningún corrimiento de huso horario.
+*/
+
+function formatStartDate(rawDate) {
+
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(rawDate || "");
+
+    if (!match) return null;
+
+    const [, year, month, day] = match;
+
+    return `${Number(day)}/${Number(month)}/${year}`;
+
+}
+
+function describeOptionStartDates(option) {
+
+    if (!option.courses || option.courses.length === 0) return "-";
+
+    const dates = [...new Set(option.courses.map(course => formatStartDate(course.startDate)).filter(Boolean))];
+
+    return dates.length > 0 ? dates.join(" / ") : "-";
 
 }
 

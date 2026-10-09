@@ -329,10 +329,12 @@ async function buildMoneyContext(baseCurrency, currencyPair) {
     ]);
 
     // Ver fx.js#getFxMeta — solo lee del caché que los dos fetch de arriba
-    // ya llenaron, nunca dispara una petición aparte. Null si la API falló
-    // o si primaryCurrency/secondaryCurrency eran ambas igual a
-    // baseCurrency (ningún fetch real llegó a hacerse).
-    const fxMeta = getFxMeta(baseCurrency);
+    // ya llenaron, nunca dispara una petición aparte. Se pide el par
+    // (baseCurrency, secondaryCurrency) porque esa es la conversión
+    // externa real que se muestra/enlaza en el PDF (primaryCurrency casi
+    // siempre ES baseCurrency, tasa 1, nunca dispara un fetch real — ver
+    // fetchExchangeRate). Null si esa fuente falló o nunca se consultó.
+    const fxMeta = getFxMeta(baseCurrency, secondaryCurrency);
 
     // Link que debe ver el estudiante en la nota del PDF (decisión
     // confirmada del cliente, 2026-10-09: tiene que poder abrirlo y VER
@@ -814,6 +816,8 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
 
             infoLine("Fecha de elaboración de la cotización", generatedDate),
 
+            infoLine("Fecha de inicio de clases", describeOptionStartDates({ courses: quote.courses })),
+
             infoLine("Ciudad", describeOptionCities({ courses: quote.courses })),
 
             infoLine("Horario", describeOptionSchedules({ courses: quote.courses })),
@@ -953,7 +957,27 @@ function buildCostTableSection(quote, moneyCtx) {
 
     otherChargeRows.push(amountRow(insuranceLabel, quote.insurance.cost, moneyCtx));
 
-    otherChargeRows.push(amountRow("Visa", quote.visa.cost, moneyCtx));
+    /*
+        Desglose de Visa por componente (decisión confirmada del cliente,
+        2026-10-09: ver pricing.js#calculateVisa) — "Visa" es siempre el
+        aplicante principal; "Visa (pareja)" y "Visa (menor de edad)" solo
+        aparecen cuando corresponden (Couple/Family y Family con menores,
+        respectivamente) — coupleAmount/minorAmount ya vienen en 0 cuando
+        no aplican, pero el "if" evita una fila "$0" que no aporta nada.
+    */
+    otherChargeRows.push(amountRow("Visa", quote.visa.singleAmount, moneyCtx));
+
+    if (quote.visa.coupleAmount > 0) {
+
+        otherChargeRows.push(amountRow("Visa (pareja)", quote.visa.coupleAmount, moneyCtx));
+
+    }
+
+    if (quote.visa.minorAmount > 0) {
+
+        otherChargeRows.push(amountRow(`Visa (menor de edad) (x${quote.visa.numberOfMinors})`, quote.visa.minorAmount, moneyCtx));
+
+    }
 
     if (quote.secondApplicationSurcharge.applies) {
 
@@ -1281,6 +1305,26 @@ function collectNotes(quote, moneyCtx) {
             link: moneyCtx.fxVerifyUrl
 
         });
+
+    }
+
+    /*
+        Maestría by Research — Visa del menor de edad (decisión
+        confirmada del cliente, 2026-10-09, ver hoja "Visas" columna F,
+        fila HE/Australia): si el curso es Higher Education y la
+        cotización es Family con menores de edad, se avisa que un
+        programa de maestría by research podría eximir al menor del pago
+        de visa. No se resta nada automáticamente — hoy no existe en
+        "Cursos" ninguna forma de identificar que un programa puntual ES
+        "by research" (0 filas HE cargadas todavía), así que esto queda
+        como advertencia para que la asesora confirme el caso con el
+        equipo de visa, igual que ya se hace con Costos Extras.
+    */
+    const visa = quote.visa || {};
+
+    if (visa.primaryType === "HE" && visa.quotationType === "Family" && visa.numberOfMinors > 0) {
+
+        notes.push("Si el programa corresponde a una maestría by research (Higher Education), el menor de edad no paga el valor de la visa — verifica esta condición con el equipo de visa antes de confirmar el costo final.");
 
     }
 

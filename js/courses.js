@@ -559,6 +559,30 @@ function toggleManualOverride(id) {
 
     fields.classList.toggle("hidden", !isActive);
 
+    /*
+        Decisión confirmada del cliente, 2026-10-09: mientras Modo Manual
+        esté activo, el selector normal "Duración (Semanas)" se oculta —
+        "Tiempo de estudio" de Modo Manual es la única fuente de semanas,
+        tenerlos los dos visibles a la vez confundía a la asesora. Al
+        desactivar Modo Manual, se restaura según el Tipo de Curso actual
+        (mismo criterio de siempre — ver toggleWeeksField).
+    */
+    const weeksField = document.getElementById(`weeksField_${id}`);
+
+    if (isActive) {
+
+        if (weeksField) weeksField.classList.add("hidden");
+
+        resetSelect(`weeks_${id}`);
+
+    } else {
+
+        const typeSelect = document.getElementById(`course_type_${id}`);
+
+        if (typeSelect) toggleWeeksField(id, typeSelect.value);
+
+    }
+
 }
 
 

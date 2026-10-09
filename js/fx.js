@@ -1,7 +1,7 @@
 /*==========================================================
  LATINADVISOR
  FX MODULE
- VERSION 2.0 — FUENTE OFICIAL (RBA) PARA AUD, RESPALDO COMERCIAL
+ VERSION 2.1 — FUENTE OFICIAL (RBA) PARA AUD, RESPALDO COMERCIAL
  ----------------------------------------------------------
  Se usa exclusivamente para mostrar un segundo valor (normalmente
  USD) en el PDF de la cotización: es una conversión de
@@ -14,21 +14,34 @@
  reconozca como confiable, y ese número debe coincidir con el
  impreso en el PDF):
 
-   1. AUD -> cualquier moneda: tabla oficial "F11.1 Exchange
-      Rates" del Reserve Bank of Australia (banco central), vía
-      la única ruta pública del Worker de Cloudflare (ver
-      worker/ghl-relay.js#handleFxRbaRates — el CSV del RBA no
-      trae CORS, así que el navegador no puede leerlo directo).
-      El link de verificación del PDF apunta a la página oficial
-      del RBA (pdf.js ya la recibe en moneyCtx.fxVerifyUrl) — el
-      MISMO request que resolvió el número, nunca un conversor de
+   1. AUD -> una moneda que el RBA SÍ publique (ver RBA_CURRENCIES
+      más abajo — hoy USD, EUR, GBP, NZD, CAD, CNY, JPY y poco más,
+      NUNCA COP): tabla oficial "F11.1 Exchange Rates" del Reserve
+      Bank of Australia (banco central), vía la única ruta pública
+      del Worker de Cloudflare (ver
+      worker/ghl-relay.js#handleFxRbaRates — el CSV del RBA no trae
+      CORS, así que el navegador no puede leerlo directo). El link
+      de verificación del PDF apunta a la página oficial del RBA
+      (pdf.js ya la recibe en moneyCtx.fxVerifyUrl) — el MISMO
+      request que resolvió el número, nunca un conversor de
       terceros que podría mostrar otro valor.
-   2. Cualquier otra moneda base (ej. EUR si algún día se cotiza
-      para España): respaldo con open.er-api.com (gratuita, sin
-      API key, actualizada a diario) — el RBA solo publica cruces
-      de AUD, no sirve para otras monedas base.
+   2. Cualquier otro par (AUD -> una moneda que el RBA no publique,
+      ej. COP; o cualquier otra moneda base, ej. EUR si algún día
+      se cotiza para España): respaldo con open.er-api.com (gratuita,
+      sin API key, actualizada a diario).
 
- Si AMBAS fuentes fallan, o la moneda no está en su catálogo, se
+ IMPORTANTE (decisión confirmada del cliente, 2026-10-09, bug real
+ encontrado): la fuente se decide POR PAR DE MONEDAS, no solo por
+ la moneda base — antes se revisaba únicamente si el RBA respondía
+ (found:true), sin confirmar que trajera la moneda destino
+ realmente pedida. Con AUD/COP eso hacía que el cálculo se quedara
+ pegado al RBA (que no tiene COP) y nunca cayera al respaldo
+ comercial, Y ADEMÁS la nota del PDF igual enlazaba a la página del
+ RBA como si ahí estuviera el dato — el estudiante hubiera abierto
+ ese link y no habría encontrado ningún COP. Por eso el caché ahora
+ es por PAR (ej. "aud:usd" vs "aud:cop"), nunca solo por moneda base.
+
+ Si AMBAS fuentes fallan, o la moneda no está en ningún catálogo, se
  retorna null: quien llama debe mostrar un solo valor de moneda en
  vez de romper la generación del PDF.
 ==========================================================*/
@@ -41,6 +54,13 @@ const FX_API_BASE = "https://open.er-api.com/v6/latest";
 const FX_RBA_WORKER_URL = (typeof GHL_RELAY_BASE_URL === "string" && GHL_RELAY_BASE_URL)
     ? `${GHL_RELAY_BASE_URL}/fx/rba-rates`
     : null;
+
+// Caché del CSV crudo del RBA (una sola fila de monedas, independiente de
+// cuál par se esté resolviendo) — separado del caché por par de abajo,
+// para no volver a pedirlo si ya se consultó una vez en esta página.
+let rbaRatesCache = null;
+
+let rbaRatesLoadingPromise = null;
 
 let fxRatesCache = {};
 
@@ -56,34 +76,53 @@ async function fetchRbaRates() {
 
     if (!FX_RBA_WORKER_URL) return null;
 
-    try {
+    if (rbaRatesCache) return rbaRatesCache;
 
-        const response = await fetch(FX_RBA_WORKER_URL);
+    if (!rbaRatesLoadingPromise) {
 
-        if (!response.ok) return null;
+        rbaRatesLoadingPromise = (async () => {
 
-        const data = await response.json();
+            try {
 
-        if (data.result !== "success" || !data.rates) return null;
+                const response = await fetch(FX_RBA_WORKER_URL);
 
-        // "sourceUrl" ya viene de la respuesta del Worker — es la página
-        // oficial de estadísticas del RBA (humana, legible), no un
-        // endpoint JSON técnico (ver getFxMeta más abajo).
-        data.__sourceUrl = data.sourceUrl || null;
+                if (!response.ok) return null;
 
-        return data;
+                const data = await response.json();
 
-    } catch (error) {
+                if (data.result !== "success" || !data.rates) return null;
 
-        return null;
+                // "sourceUrl" ya viene de la respuesta del Worker — es la
+                // página oficial de estadísticas del RBA (humana,
+                // legible), no un endpoint JSON técnico (ver getFxMeta).
+                data.__sourceUrl = data.sourceUrl || null;
+
+                rbaRatesCache = data;
+
+                return data;
+
+            } catch (error) {
+
+                return null;
+
+            } finally {
+
+                rbaRatesLoadingPromise = null;
+
+            }
+
+        })();
 
     }
+
+    return rbaRatesLoadingPromise;
 
 }
 
 /*
-    Respaldo comercial (open.er-api.com) — se usa cuando la moneda base
-    no es AUD, o cuando la fuente del RBA falló por cualquier motivo.
+    Respaldo comercial (open.er-api.com) — se usa cuando el RBA no
+    publica la moneda destino pedida, cuando la moneda base no es AUD, o
+    cuando la fuente del RBA falló por cualquier motivo.
 */
 async function fetchCommercialRates(fromCurrency) {
 
@@ -114,13 +153,20 @@ async function fetchCommercialRates(fromCurrency) {
 
 }
 
+function hasRate(data, toCurrency) {
+
+    return !!(data && data.rates && typeof data.rates[String(toCurrency).toUpperCase()] === "number");
+
+}
+
 async function fetchExchangeRate(fromCurrency, toCurrency) {
 
     if (!fromCurrency || !toCurrency) return null;
 
     if (normalize(fromCurrency) === normalize(toCurrency)) return 1;
 
-    const cacheKey = normalize(fromCurrency);
+    // Caché por PAR (no solo por moneda base) — ver cabecera del archivo.
+    const cacheKey = `${normalize(fromCurrency)}:${normalize(toCurrency)}`;
 
     if (fxRatesCache[cacheKey]) return resolveRate(fxRatesCache[cacheKey], toCurrency);
 
@@ -130,13 +176,23 @@ async function fetchExchangeRate(fromCurrency, toCurrency) {
 
             try {
 
-                // AUD siempre prefiere la fuente oficial del RBA (decisión
-                // confirmada del cliente, 2026-10-09) — el respaldo
-                // comercial solo entra si el RBA/Worker falló. Cualquier
-                // otra moneda base va directo al respaldo (el RBA no
-                // publica cruces que no sean de AUD).
-                const data = (cacheKey === "aud" ? await fetchRbaRates() : null)
-                    || await fetchCommercialRates(fromCurrency);
+                let data = null;
+
+                // AUD prefiere la fuente oficial del RBA (decisión
+                // confirmada del cliente, 2026-10-09) — pero SOLO si el
+                // RBA de verdad trae la moneda destino pedida (ver
+                // hasRate); si no (ej. COP), cae al respaldo comercial en
+                // vez de quedarse con datos oficiales que no cubren esa
+                // moneda.
+                if (normalize(fromCurrency) === "aud") {
+
+                    const rbaData = await fetchRbaRates();
+
+                    if (hasRate(rbaData, toCurrency)) data = rbaData;
+
+                }
+
+                if (!data) data = await fetchCommercialRates(fromCurrency);
 
                 if (data) fxRatesCache[cacheKey] = data;
 
@@ -173,19 +229,22 @@ function resolveRate(data, toCurrency) {
     (decisión confirmada del cliente, 2026-10-09: el PDF debe decir de
     dónde sale la tasa de cambio, con un link que el estudiante pueda
     abrir y VER la tasa, coincidiendo siempre con el número impreso).
-    "sourceUrl" es la página oficial del RBA (si cacheKey fue "aud" y esa
-    fuente respondió) o el request JSON del respaldo comercial — nunca
-    una página de mercadeo ni un conversor de terceros que podría mostrar
-    un número distinto. Solo lee del caché ya poblado por
+    Recibe el MISMO par (fromCurrency, toCurrency) que se le pidió a
+    fetchExchangeRate — el caché ahora es por par, así que una fuente
+    distinta por cada moneda destino es posible y correcto (ej. AUD/USD
+    por RBA, AUD/COP por el respaldo comercial, dentro de la misma
+    cotización). "sourceUrl" es la página oficial del RBA (si esa fuente
+    respondió para este par) o el request JSON del respaldo comercial —
+    nunca una página de mercadeo ni un conversor de terceros que podría
+    mostrar un número distinto. Solo lee del caché ya poblado por
     fetchExchangeRate — nunca dispara un fetch aparte — así que hay que
-    llamarla DESPUÉS de haber pedido al menos una tasa para "fromCurrency"
-    en esta sesión de página. Si ambas fuentes fallaron (o nunca se
-    consultó), devuelve null — quien llama debe omitir la nota en vez de
-    inventar una fuente.
+    llamarla DESPUÉS de haber pedido esa tasa en esta sesión de página. Si
+    la fuente falló (o nunca se consultó), devuelve null — quien llama
+    debe omitir la nota en vez de inventar una fuente.
 */
-function getFxMeta(fromCurrency) {
+function getFxMeta(fromCurrency, toCurrency) {
 
-    const cacheKey = normalize(fromCurrency);
+    const cacheKey = `${normalize(fromCurrency)}:${normalize(toCurrency)}`;
 
     const data = fxRatesCache[cacheKey];
 
