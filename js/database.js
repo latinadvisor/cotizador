@@ -1051,7 +1051,21 @@ async function fetchCourseDetails({ college, city, type, program, weeks, schedul
 
     const isMaterialsPerWeek = normalize(row["Indicador de Materiales"]) === normalize("Por semana");
 
-    const catalogMaterialsFee = isMaterialsPerWeek ? materialsRaw * officialWeeks : materialsRaw;
+    const materialsFeeBeforeCap = isMaterialsPerWeek ? materialsRaw * officialWeeks : materialsRaw;
+
+    /*
+        TOPE DE MATERIALES (columna "condicion", decisión confirmada del
+        cliente, 2026-10-09): algunos colegios (ej. ILSC=450, Insight
+        Academy=360) no cobran más de un monto fijo de materiales sin
+        importar cuánto sume el cálculo normal — típicamente con
+        "Indicador de Materiales"="Por semana", donde sin tope el monto
+        crece sin límite en cursos largos. Si la celda trae un número > 0,
+        se usa como techo (Math.min); vacía o 0 = sin tope, comportamiento
+        de siempre.
+    */
+    const materialsCap = Number(row["condicion"]) || 0;
+
+    const catalogMaterialsFee = materialsCap > 0 ? Math.min(materialsFeeBeforeCap, materialsCap) : materialsFeeBeforeCap;
 
     const catalogPrice = catalogWeeklyRate * officialWeeks;
 
