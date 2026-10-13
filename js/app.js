@@ -604,17 +604,20 @@ function buildQuotationLines(quote) {
 
         weeks: course.officialWeeks || course.requestedWeeks || 0,
 
-        // Fecha de inicio del curso (ver courses.js#createStartDateField) —
-        // puramente informativo, viaja a GHL tal cual la escribió la
-        // asesora (formato "AAAA-MM-DD" del input[type=date]). Sin fecha,
-        // la llave NUNCA se incluye (en vez de mandar "") — GHL rechaza con
-        // HTTP 400 "We couldn't validate the mapped field: start_date" un
-        // string vacío en un campo tipo Fecha del Custom Object "Course
-        // Line", y como esa llamada va ANTES de crear la nota del contacto
-        // (ver app.js#saveEachOptionToGhl), ese error bloqueaba en cascada
+        // Fecha de inicio del curso (ver courses.js#createStartDateField):
+        // NO se envía a GHL (ni vacía ni llena) — el Custom Object "Course
+        // Line" en GHL no tiene un campo mapeado con la clave "start_date"
+        // todavía, y GHL rechaza con HTTP 400 "We couldn't validate the
+        // mapped field: start_date" cualquier valor para una clave que no
+        // existe en su schema (confirmado probando con el campo vacío Y
+        // con fecha real, mismo error en los dos casos). Como esa llamada
+        // va ANTES de crear la nota del contacto (ver
+        // app.js#saveEachOptionToGhl), ese error bloqueaba en cascada
         // tanto la línea del curso como la nota — bug encontrado al
-        // investigar por qué dejaron de guardarse, 2026-10-12.
-        ...(course.startDate ? { start_date: course.startDate } : {}),
+        // investigar por qué dejaron de guardarse, 2026-10-12. Sigue
+        // viajando igual al PDF (pdf.js), que es donde el cliente
+        // realmente necesita verla; si más adelante se crea ese campo en
+        // GHL con la clave correcta, se puede volver a agregar acá.
 
         price: course.price,
 
