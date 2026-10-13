@@ -606,9 +606,15 @@ function buildQuotationLines(quote) {
 
         // Fecha de inicio del curso (ver courses.js#createStartDateField) —
         // puramente informativo, viaja a GHL tal cual la escribió la
-        // asesora (formato "AAAA-MM-DD" del input[type=date], o "" si no
-        // se llenó).
-        start_date: course.startDate || "",
+        // asesora (formato "AAAA-MM-DD" del input[type=date]). Sin fecha,
+        // la llave NUNCA se incluye (en vez de mandar "") — GHL rechaza con
+        // HTTP 400 "We couldn't validate the mapped field: start_date" un
+        // string vacío en un campo tipo Fecha del Custom Object "Course
+        // Line", y como esa llamada va ANTES de crear la nota del contacto
+        // (ver app.js#saveEachOptionToGhl), ese error bloqueaba en cascada
+        // tanto la línea del curso como la nota — bug encontrado al
+        // investigar por qué dejaron de guardarse, 2026-10-12.
+        ...(course.startDate ? { start_date: course.startDate } : {}),
 
         price: course.price,
 
