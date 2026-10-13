@@ -5,10 +5,12 @@
  ----------------------------------------------------------
  Permite comparar varios colegios para el mismo estudiante:
  cada pestaña ("Opción 1", "Opción 2", ...) tiene su PROPIA
- sección de Cursos Académicos (ver js/courses.js, que ya
- escopea todas sus operaciones por optionId), pero comparte el
- resto de la cotización (estudiante, servicios, reglas
- generales) — eso lo resuelve pricing.js, no este módulo.
+ sección de Cursos Académicos (ver js/courses.js) Y su PROPIA
+ sección de Servicios Opcionales (ver js/services.js — decisión
+ confirmada del cliente, 2026-10-12, ya no es global), ambas
+ escopadas por optionId. Solo comparte entre pestañas los datos
+ del estudiante y las reglas generales de la cotización — eso lo
+ resuelve pricing.js, no este módulo.
 
  Este módulo solo administra: qué opciones existen, cuál está
  activa, y la etiqueta visible de cada pestaña — siempre
@@ -54,6 +56,8 @@ function createCoursesCard() {
 
             ${coursesHtml}
 
+            ${createServicesMarkup(firstOptionId)}
+
         </div>
 
     `;
@@ -90,6 +94,8 @@ function createCoursesCard() {
     setTimeout(() => {
 
         initializeCourseCard(firstCourseId);
+
+        loadServiceOptions(firstOptionId);
 
         updateDeleteButtonsVisibility(firstOptionId);
 
@@ -139,11 +145,15 @@ function addCourseOption() {
 
             ${coursesHtml}
 
+            ${createServicesMarkup(optionId)}
+
         </div>
 
     `);
 
     initializeCourseCard(firstCourseId);
+
+    loadServiceOptions(optionId);
 
     updateDeleteButtonsVisibility(optionId);
 
@@ -298,7 +308,11 @@ function getAllCourseOptionsData() {
 
         optionLabel: buildOptionLabel(option, index),
 
-        courses: getAllCoursesData(option.id)
+        courses: getAllCoursesData(option.id),
+
+        // Servicios Opcionales por opción (decisión confirmada del
+        // cliente, 2026-10-12) — ver services.js#getSelectedServices.
+        services: typeof getSelectedServices === "function" ? getSelectedServices(option.id) : []
 
     }));
 

@@ -37,17 +37,17 @@
  1. ORQUESTADOR PRINCIPAL
  ----------------------------------------------------------
  NIVEL 1 (compartido por todas las opciones de colegio):
- estudiante, moneda, recargo 2da aplicación, extras offshore,
- costos extras (exámenes) y servicios opcionales — todos
- dependen solo de input.student/input.services, nunca de qué
- cursos tenga cada pestaña, así que se calculan UNA sola vez.
+ estudiante, moneda, recargo 2da aplicación y extras offshore —
+ todos dependen solo de input.student, nunca de qué cursos (o
+ servicios) tenga cada pestaña, así que se calculan UNA sola vez.
 
- NIVEL 2 (una vez por pestaña/opción de colegio): cursos,
- seguro médico, visa, descuentos y totales — ver
- calculateOptionQuote(). Cada opción usa sus PROPIOS cursos
- pero reutiliza el NIVEL 1 ya resuelto (mismo servicio,
- mismas reglas, nunca se recalculan ni se mezclan entre
- opciones).
+ NIVEL 2 (una vez por pestaña/opción de colegio): cursos, seguro
+ médico, visa, servicios opcionales (decisión confirmada del
+ cliente, 2026-10-12 — antes eran NIVEL 1), descuentos y totales —
+ ver calculateOptionQuote(). Cada opción usa sus PROPIOS cursos y
+ sus PROPIOS servicios, y reutiliza el NIVEL 1 ya resuelto (mismo
+ estudiante/reglas generales, nunca se recalculan ni se mezclan
+ entre opciones).
 ==========================================================*/
 
 async function calculateQuotation() {
@@ -76,27 +76,17 @@ async function calculateQuotation() {
 
     const extraCosts = await calculateExtraCosts();
 
-    // Ver resolveBestAirportPickupRate más abajo — Airport Pickup sigue
-    // siendo NIVEL 1 (compartido entre todas las opciones de colegio,
-    // igual que SIM Card/Traducciones), pero su precio depende de la
-    // ciudad de estudio, así que hay que resolverlo ANTES de armar
-    // servicesLines, mirando los cursos de TODAS las opciones (decisión
-    // confirmada del cliente, 2026-10-07).
-    const airportPickupRate = await resolveBestAirportPickupRate(input.options);
-
-    const servicesLines = await calculateServicesLines(input.services, airportPickupRate);
-
-    const servicesSubtotal = sumBySubtotal(servicesLines);
-
+    // Servicios Opcionales (incluido Airport Pickup) ya NO son NIVEL 1 —
+    // cada opción de colegio los resuelve con sus propios datos dentro
+    // de calculateOptionQuote() (ver esa función y la sección 8 más
+    // abajo, decisión confirmada del cliente, 2026-10-12).
     const shared = {
 
         student: input.student,
 
         secondApplicationSurcharge,
 
-        offshoreExtras,
-
-        servicesSubtotal
+        offshoreExtras
 
     };
 
@@ -113,8 +103,6 @@ async function calculateQuotation() {
         currency,
 
         student: input.student,
-
-        services: servicesLines,
 
         secondApplicationSurcharge,
 
@@ -201,6 +189,15 @@ async function calculateOptionQuote(courseOption, shared) {
 
     }
 
+    // Servicios Opcionales (incluido Airport Pickup) — por opción de
+    // colegio, con los cursos de ESTA opción únicamente (decisión
+    // confirmada del cliente, 2026-10-12, ver sección 8 más abajo).
+    const airportPickupRate = await resolveAirportPickupRateForOption(courseOption.courses);
+
+    const servicesLines = await calculateServicesLines(courseOption.services, airportPickupRate);
+
+    const servicesSubtotal = sumBySubtotal(servicesLines);
+
     const promotionsApplied = collectPromotionsApplied(courseLines);
 
     const totals = assembleTotals({
@@ -215,7 +212,7 @@ async function calculateOptionQuote(courseOption, shared) {
 
         offshoreExtras: shared.offshoreExtras,
 
-        servicesSubtotal: shared.servicesSubtotal,
+        servicesSubtotal,
 
         applicationType: shared.student.application_type,
 
@@ -248,6 +245,10 @@ async function calculateOptionQuote(courseOption, shared) {
         insurance,
 
         visa,
+
+        services: servicesLines,
+
+        servicesSubtotal,
 
         promotionsApplied,
 
@@ -295,7 +296,9 @@ function buildLegacyOptionQuote(quote, option) {
 
         extraCosts: quote.extraCosts,
 
-        services: quote.services,
+        // Servicios Opcionales ahora son por opción (ver
+        // calculateOptionQuote), no comparten uno solo a nivel cotización.
+        services: option.services,
 
         promotionsApplied: option.promotionsApplied,
 
@@ -324,9 +327,11 @@ function collectQuotationInput() {
 
         student: getStudentData(),
 
-        options: getAllCourseOptionsData(),
-
-        services: typeof getSelectedServices === "function" ? getSelectedServices() : []
+        // Cada opción ya trae su propio "services" (ver
+        // course-options.js#getAllCourseOptionsData) — decisión
+        // confirmada del cliente, 2026-10-12: Servicios Opcionales ya no
+        // es un selector global.
+        options: getAllCourseOptionsData()
 
     };
 
@@ -660,7 +665,44 @@ async function applyOnshoreFirstPaymentDeposits(courseLines, applicationType) {
 
         line.firstPaymentDepositNote = condition.infoNote || "";
 
+        // Texto humano de la fórmula realmente usada para ESTE curso —
+        // ver pdf.js#buildPrimerPagoExplanationText (nota chica debajo de
+        // "Primer Pago" en Resumen de Inversión, pedido explícito del
+        // cliente, 2026-10-12).
+        line.firstPaymentFormulaLabel = describeOnshoreDepositFormula(condition);
+
     }
+
+}
+
+/*
+    Mismos 4 tipos de condición que computeOnshoreDeposit() (ver
+    database.js#ONSHORE_DEPOSIT_CONDITION_TYPES) más el sentinela de
+    "ningún tramo calza" — en texto simple para mostrarle a la asesora
+    de dónde sale el Primer Pago de cada opción (ver
+    pdf.js#buildPrimerPagoExplanationText).
+*/
+function describeOnshoreDepositFormula(condition) {
+
+    const T = ONSHORE_DEPOSIT_CONDITION_TYPES;
+
+    if (condition.tipo === NO_BRACKET_MATCH_SENTINEL) return "100% del valor del curso + matrícula + materiales";
+
+    if (condition.tipo === T.VALOR_FIJO) return "Valor fijo del depósito definido por la institución";
+
+    if (condition.tipo === T.VALOR_MAS_FEES) return "Valor fijo del depósito + matrícula + materiales";
+
+    if (condition.tipo === T.SEMANAS_MAS_FEES || condition.tipo === T.SEMANAS_LEGACY) {
+
+        const weeks = condition.parametro;
+
+        return `${weeks} semana${weeks === 1 ? "" : "s"} de estudio x tarifa semanal + matrícula + materiales`;
+
+    }
+
+    if (condition.tipo === T.PORCENTAJE_POR_DURACION) return `${condition.parametro}% del valor del curso + matrícula + materiales`;
+
+    return "";
 
 }
 
@@ -947,24 +989,25 @@ async function calculateExtraCosts() {
 
 
 /*==========================================================
- 8. SERVICIOS OPCIONALES
+ 8. SERVICIOS OPCIONALES (NIVEL 2 — por opción de colegio, decisión
+ confirmada del cliente, 2026-10-12)
  ----------------------------------------------------------
- AIRPORT PICKUP (decisión confirmada del cliente, 2026-10-07): ver
- database.js#fetchServiceCatalog/fetchAirportPickupRate. Sigue
- siendo un servicio NIVEL 1 (compartido entre todas las opciones de
- colegio, como SIM Card/Traducciones), pero su precio depende de la
- ciudad de estudio. resolveBestAirportPickupRate() mira los cursos
- de TODAS las opciones de la cotización (no solo una), resuelve la
- ciudad real de cada uno (igual que database.js#resolveCourseDisplayCity:
- si el curso usa el comodín "Todos los campus", la ciudad real es
- "Ciudad seleccionada por el estudiante") y usa la tarifa MÁS ALTA
- entre todas esas ciudades — mismo criterio que ya aplica para
- cualquier otro servicio compartido (un solo monto para toda la
- cotización). Si NINGUNA ciudad tiene fila de Airport Pickup
- configurada, el servicio se excluye de la cotización en silencio
- (aunque la asesora lo haya marcado) — no hay nada que cobrar ni que
- avisar, es información de catálogo faltante, no un error de la
- asesora.
+ Antes eran NIVEL 1 (compartidos por toda la cotización); ahora cada
+ opción de colegio (pestaña) tiene su PROPIA selección de servicios
+ — ver services.js (escopado por optionId, igual que courses.js) y
+ course-options.js#getAllCourseOptionsData. Se calculan dentro de
+ calculateOptionQuote(), nunca en calculateQuotation().
+
+ AIRPORT PICKUP (decisión confirmada del cliente, 2026-10-07, ajustada
+ 2026-10-12): ver database.js#fetchServiceCatalog/fetchAirportPickupRate.
+ Ya no compara ciudades entre TODAS las opciones — ahora solo mira los
+ cursos de la opción actual (resolveAirportPickupRateForOption) y usa
+ la tarifa más alta SI esa opción combina más de una ciudad entre sus
+ propios cursos. Si NINGUNA ciudad de esta opción tiene fila de
+ Airport Pickup configurada, el servicio se excluye de esta opción en
+ silencio (aunque la asesora lo haya marcado) — no hay nada que cobrar
+ ni que avisar, es información de catálogo faltante, no un error de
+ la asesora.
 ==========================================================*/
 
 function resolveCourseStudyCity(course) {
@@ -973,19 +1016,15 @@ function resolveCourseStudyCity(course) {
 
 }
 
-async function resolveBestAirportPickupRate(options) {
+async function resolveAirportPickupRateForOption(courses) {
 
     const cities = new Set();
 
-    (options || []).forEach(option => {
+    (courses || []).forEach(course => {
 
-        (option.courses || []).forEach(course => {
+        const city = resolveCourseStudyCity(course);
 
-            const city = resolveCourseStudyCity(course);
-
-            if (city) cities.add(city);
-
-        });
+        if (city) cities.add(city);
 
     });
 

@@ -177,6 +177,31 @@ const TEMPLATE_LAYOUT = {
     asesoraText: { x: 329, y: 234 },
 
     /*
+        Dos textos nuevos (pedido explícito del cliente, 2026-10-12),
+        cada uno debajo de su cuadro verde — NO llevan cuadro propio,
+        solo texto suelto con el mismo esquema de color que ya se usa en
+        el resto de la cotización (navy, igual que buildGreenBoxValue).
+        Se probó alinearlos a la derecha igual que los cuadros, pero el
+        cliente pidió volver a dejarlos pegados a la izquierda (mejor
+        distribución del espacio):
+
+          "Visado por:" debajo de "Estudio por" — sin valor por ahora
+          (se completará más adelante con el tiempo estimado según
+          paquetes). Cabe en el espacio libre entre el borde inferior de
+          ese cuadro (179.00+21.75=200.75) y el borde superior de
+          "Asesora" (229.50).
+
+          "Cotización: Onshore/Offshore" debajo de "Asesora", según
+          quote.student.application_type — ver buildCotizacionTipoLine.
+          Va justo debajo del borde inferior real de ese cuadro
+          (229.50+21.25=250.75).
+    */
+
+    visadoPorText: { x: 329, y: 204 },
+
+    cotizacionTipoText: { x: 329, y: 254 },
+
+    /*
         La etiqueta "Detalles:" impresa en la propia plantilla tiene su
         baseline en y_top≈163 (medido igual que los cuadros verdes: cm
         [1 0 0 1 52 619.005859] + Tm offset 8.994141 sobre el content
@@ -618,6 +643,41 @@ function buildGreenBoxValue(value, position, contentWidth) {
 
 }
 
+/*
+    Texto suelto debajo de un cuadro verde (sin tabla ni padding
+    especial: a diferencia de buildGreenBoxValue, acá no hace falta
+    alinear a la derecha — ver TEMPLATE_LAYOUT.visadoPorText/
+    cotizacionTipoText). Mismo color/peso que el valor de los cuadros
+    verdes (navy, bold) para mantener el esquema de color ya usado en
+    el resto de la cotización — pedido explícito del cliente,
+    2026-10-12 (nunca rojo, eso era solo la marca del mockup). Se
+    probó alinear a la derecha igual que los cuadros (ver historial),
+    pero el cliente pidió volver a dejarlo pegado a la izquierda, como
+    en la primera versión — mejor distribución del espacio.
+*/
+function buildBelowGreenBoxText(text, position) {
+
+    return { absolutePosition: position, text, fontSize: 9, bold: true, color: PDF_COLORS.navy };
+
+}
+
+/*
+    "Cotización: Onshore"/"Cotización: Offshore" debajo del cuadro
+    "Asesora" (pedido explícito del cliente, 2026-10-12) — toma
+    application_type tal cual lo seleccionó la asesora. Sin
+    application_type reconocido no se agrega nada (en vez de un texto
+    vacío o "Cotización: undefined").
+*/
+function buildCotizacionTipoLine(student) {
+
+    const applicationType = student && student.application_type;
+
+    if (applicationType !== "Onshore" && applicationType !== "Offshore") return null;
+
+    return buildBelowGreenBoxText(`Cotización: ${applicationType}`, TEMPLATE_LAYOUT.cotizacionTipoText);
+
+}
+
 function infoLine(label, value) {
 
     return { text: [{ text: `${label}: `, bold: true }, value || "-"], fontSize: 9, margin: [0, 1, 0, 1] };
@@ -684,9 +744,14 @@ function buildOverlayDocDefinition(quote, student, advisor, optionLabel, moneyCt
         distinta (menor) a la que ya veía la asesora en pantalla.
     */
 
+    const estudioPorTotalWeeks = quote.courses && quote.courses.length > 0 ? computeTotalWeeks(quote.courses) : 0;
+
+    // Además de los meses cerrados, el valor debe mostrar la duración
+    // real en semanas entre paréntesis (pedido explícito del cliente,
+    // 2026-10-12) — ej. "6 meses (25 semanas)".
     const estudioPorValue = quote.courses && quote.courses.length > 0
 
-        ? weeksToClosedMonthsLabel(computeTotalWeeks(quote.courses))
+        ? `${weeksToClosedMonthsLabel(estudioPorTotalWeeks)} (${estudioPorTotalWeeks} ${estudioPorTotalWeeks === 1 ? "semana" : "semanas"})`
 
         : "-";
 
@@ -702,6 +767,12 @@ function buildOverlayDocDefinition(quote, student, advisor, optionLabel, moneyCt
 
     const greenBoxContentWidth = TEMPLATE_LAYOUT.greenBoxRight - TEMPLATE_LAYOUT.greenBoxLeft - TEMPLATE_LAYOUT.greenBoxRightPadding;
 
+    // "Visado por:" sin valor por ahora (pedido explícito del cliente,
+    // 2026-10-12 — se completará más adelante según paquetes) y
+    // "Cotización: Onshore/Offshore" pueden ser null/omitidos sin
+    // romper el documento (pdfmake no acepta null en "content").
+    const cotizacionTipoLine = buildCotizacionTipoLine(student);
+
     return {
 
         pageSize: "LETTER",
@@ -713,6 +784,10 @@ function buildOverlayDocDefinition(quote, student, advisor, optionLabel, moneyCt
             buildGreenBoxValue(estudioPorValue, TEMPLATE_LAYOUT.estudioPorText, greenBoxContentWidth),
 
             buildGreenBoxValue(asesoraValue, TEMPLATE_LAYOUT.asesoraText, greenBoxContentWidth),
+
+            buildBelowGreenBoxText("Visado por:", TEMPLATE_LAYOUT.visadoPorText),
+
+            ...(cotizacionTipoLine ? [cotizacionTipoLine] : []),
 
             buildProgramInfoBlock(primaryCourse, student, quote, optionLabel),
 
@@ -1095,7 +1170,9 @@ function buildResumenFinancieroSection(quote, moneyCtx) {
 
     const content = [
 
-        { text: "Resumen Financiero", style: "sectionTitle", margin: [0, 10, 0, 6] },
+        // Antes "Resumen Financiero" — renombrado a pedido explícito del
+        // cliente, 2026-10-12.
+        { text: "Resumen de Inversión", style: "sectionTitle", margin: [0, 10, 0, 6] },
 
         {
 
@@ -1107,7 +1184,64 @@ function buildResumenFinancieroSection(quote, moneyCtx) {
 
     ];
 
+    // Explicación chica en cursiva de cómo salió "Primer Pago" (pedido
+    // explícito del cliente, 2026-10-12) — solo si la fila existe (ver
+    // "if" de arriba). Ver buildPrimerPagoExplanationText.
+    if (totals.primerPago !== null) {
+
+        content.push({
+
+            text: `(${buildPrimerPagoExplanationText(quote)})`,
+
+            italics: true,
+
+            fontSize: 7,
+
+            color: PDF_COLORS.subtitle,
+
+            margin: [0, 2, 0, 0]
+
+        });
+
+    }
+
     return content;
+
+}
+
+/*
+    Explica de dónde sale "Primer Pago" de ESTA opción (decisión
+    confirmada del cliente, 2026-10-12: "eso saldra en el primer pago de
+    cada opcion segun la opcion elegida, si una opcion tiene 2 colegios
+    dejarla de forma generica, pero cada opcion debe tener su
+    explicación ahi"):
+
+      - Offshore: fórmula única sin importar cuántos colegios combine la
+        opción (ver pricing.js#calculateOffshoreFirstPayment25Plus).
+      - Onshore: el depósito es por curso/colegio (ver
+        pricing.js#applyOnshoreFirstPaymentDeposits/
+        describeOnshoreDepositFormula) — con un solo colegio en la
+        opción se muestra la fórmula específica que se usó; con 2 o más
+        colegios (o si por algún motivo no coinciden) se deja un texto
+        genérico en vez de mezclar fórmulas distintas.
+*/
+function buildPrimerPagoExplanationText(quote) {
+
+    const isOnshore = !!(quote.student && quote.student.application_type === "Onshore");
+
+    if (!isOnshore) return "50% curso + matrícula + materiales + otros cargos";
+
+    const colleges = [...new Set((quote.courses || []).map(course => course.college).filter(Boolean))];
+
+    const formulaLabels = [...new Set((quote.courses || []).map(course => course.firstPaymentFormulaLabel).filter(Boolean))];
+
+    if (colleges.length !== 1 || formulaLabels.length !== 1) {
+
+        return "depósito calculado según las condiciones propias de cada institución + Visa + Seguro médico";
+
+    }
+
+    return `${formulaLabels[0]} + Visa + Seguro médico`;
 
 }
 
@@ -1216,13 +1350,13 @@ function offshoreHasTranslationsItem(quote) {
         (biométricos + médicos), sin importar Onshore/Offshore.
       - buildExtraCostsDesgloseNoteText: nota del desglose de cada opción
         (ver buildExtraCostsDesgloseSection) — reemplaza la vieja tabla
-        "COSTOS EXTRAS". A diferencia de la del comparativo, esta SÍ
-        distingue por application_type (decisión confirmada del cliente:
-        Offshore normalmente requiere exámenes médicos Y datos
-        biométricos; Onshore, generalmente solo exámenes médicos):
-          - Offshore: menciona ambos, "Valor aprox." = total combinado.
-          - Onshore: menciona solo "exámenes médicos", "Valor aprox." =
-            SOLO el ítem "examen-medico" (nunca el biométrico).
+        "COSTOS EXTRAS". Texto genérico (pedido explícito del cliente,
+        2026-10-12 — ya no distingue el texto por application_type,
+        solo el monto): "si aplica o no" cubre tanto el caso Offshore
+        (médicos Y biométricos) como el Onshore (normalmente solo
+        médicos). El monto SÍ sigue distinto por application_type:
+          - Offshore: "Valor aprox." = total combinado (médicos + biométricos).
+          - Onshore: "Valor aprox." = SOLO el ítem "examen-medico".
 
     Ninguna de las dos tiene fila propia en ninguna tabla — son
     ÚNICAMENTE texto resaltado (bold + color).
@@ -1241,25 +1375,17 @@ function buildExtraCostsDesgloseNoteText(quote, moneyCtx) {
 
     const isOnshore = !!(quote.student && quote.student.application_type === "Onshore");
 
-    if (isOnshore) {
+    const amount = isOnshore
 
-        const medicalItem = (quote.extraCosts.items || []).find(item => item.code === "examen-medico");
+        ? (((quote.extraCosts.items || []).find(item => item.code === "examen-medico") || {}).amount || 0)
 
-        const medicalAmount = medicalItem ? medicalItem.amount : 0;
+        : quote.extraCosts.total;
 
-        const amountText = moneyCtx.primaryRate == null
-            ? "—"
-            : formatCurrency(medicalAmount * moneyCtx.primaryRate, moneyCtx.primaryCurrency);
-
-        return `Puede que Inmigración solicite, después de aplicar a tu visa, tomarte exámenes médicos. Esto depende de la nacionalidad y el historial migratorio de cada estudiante. Estos valores serán pagados directamente a cada entidad proveedora y serán confirmados por el equipo de visa al momento de aplicar. Valor aprox.: ${amountText}.`;
-
-    }
-
-    const extraCostsAmountText = moneyCtx.primaryRate == null
+    const amountText = moneyCtx.primaryRate == null
         ? "—"
-        : formatCurrency(quote.extraCosts.total * moneyCtx.primaryRate, moneyCtx.primaryCurrency);
+        : formatCurrency(amount * moneyCtx.primaryRate, moneyCtx.primaryCurrency);
 
-    return `Puede que Inmigración solicite, después de aplicar a tu visa, tomarte exámenes médicos y datos biométricos. Esto depende de la nacionalidad y el historial migratorio de cada estudiante. Estos valores serán pagados directamente a cada entidad proveedora y serán confirmados por el equipo de visa al momento de aplicar. Valor aprox.: ${extraCostsAmountText}.`;
+    return `Valor aproximado: ${amountText}. Costo de exámenes médicos y datos biométricos (cuando sean requeridos). El pago se realiza directamente a los proveedores del servicio.`;
 
 }
 
@@ -1488,13 +1614,31 @@ function buildAdicionalesLabel(quote) {
 
     }
 
-    const extraLabels = (quote.services || [])
+    /*
+        Servicios Opcionales ahora son por opción de colegio (decisión
+        confirmada del cliente, 2026-10-12, ver
+        pricing.js#calculateOptionQuote) — cada opción puede traer
+        servicios distintos, pero esta fila del comparativo es UNA sola
+        etiqueta compartida por toda la tabla (el monto en $ de cada
+        columna ya es correcto, por separado, vía option.totals.adicionales).
+        Se combinan los nombres de TODOS los servicios de TODAS las
+        opciones, sin repetir, para que la etiqueta siga siendo
+        informativa aunque las opciones no coincidan exactamente en qué
+        servicio eligieron.
+    */
+    const allServices = (quote.options || []).flatMap(option => option.services || []);
 
-        .filter(service => !(isOffshoreTranslations && service.serviceCode === "traducciones"))
+    const extraLabels = [...new Set(
 
-        .map(service => service.shortLabel || service.label)
+        allServices
 
-        .filter(Boolean);
+            .filter(service => !(isOffshoreTranslations && service.serviceCode === "traducciones"))
+
+            .map(service => service.shortLabel || service.label)
+
+            .filter(Boolean)
+
+    )];
 
     return [base, ...extraLabels].join(" + ");
 

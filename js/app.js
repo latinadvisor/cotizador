@@ -12,11 +12,10 @@ document.addEventListener("DOMContentLoaded",()=>{
 
         +
 
+        // Servicios Opcionales ya no es una tarjeta global — vive dentro
+        // de cada opción de colegio (ver course-options.js/services.js,
+        // decisión confirmada del cliente, 2026-10-12).
         createCoursesCard()
-
-        +
-
-        createServicesCard()
 
         +
 
@@ -73,7 +72,13 @@ document.addEventListener("DOMContentLoaded",()=>{
  siguiente botón pueda usarlo.
 ==========================================================*/
 
-const COLLAPSIBLE_INTAKE_CARD_IDS = ["studentCard", "coursesCard", "servicesCard"];
+// "servicesCard" ya no es un id fijo — ahora hay una tarjeta de
+// Servicios Opcionales POR OPCIÓN de colegio ("servicesCard-{optionId}",
+// ver services.js) — wireCollapsibleReopenGuard() las reconoce por
+// prefijo, ver más abajo.
+const COLLAPSIBLE_INTAKE_CARD_IDS = ["studentCard", "coursesCard"];
+
+const SERVICES_CARD_ID_PREFIX = "servicesCard-";
 
 /*
     Red de seguridad: si algo dentro de "promise" se queda esperando
@@ -345,7 +350,14 @@ async function saveEachOptionToGhl(quote, student, advisor, contactId, pdfUrl, f
 
         } catch (error) {
 
-            // Se continúa con las demás opciones — ver comentario de la función.
+            // Se continúa con las demás opciones (ver comentario de la
+            // función), pero SIEMPRE se deja registro del motivo exacto
+            // en consola — antes este catch quedaba vacío y una falla acá
+            // (cotización, líneas o nota) era indistinguible de un éxito
+            // real para quien revisara el código, pedido explícito del
+            // cliente al investigar por qué dejaron de aparecer las
+            // notas en GHL, 2026-10-12.
+            console.error(`Error guardando "${option.label}" en GoHighLevel (cotización/líneas/nota):`, error);
 
         }
 
@@ -699,7 +711,15 @@ function wireCollapsibleReopenGuard() {
 
         const card = header.closest(".card");
 
-        if (!card || !COLLAPSIBLE_INTAKE_CARD_IDS.includes(card.id)) return;
+        const isIntakeCard = !!card && (
+
+            COLLAPSIBLE_INTAKE_CARD_IDS.includes(card.id) ||
+
+            card.id.startsWith(SERVICES_CARD_ID_PREFIX)
+
+        );
+
+        if (!isIntakeCard) return;
 
         const justExpanded = !card.classList.contains("card-collapsed");
 
