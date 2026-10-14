@@ -171,21 +171,31 @@ async function calculateOptionQuote(courseOption, shared) {
 
     });
 
-    // "Seguro Gratis"/"Visa Gratis" (ver database.js#buildCourseDiscountEffect):
-    // basta con que UN curso de la opción lo traiga para que ese costo
-    // quede en $0 para TODA la opción — Seguro/Visa son costos únicos por
-    // opción, no por curso, así que no tiene sentido "ser gratis a medias".
-    if (courseLines.some(line => line.waiveInsurance)) insurance.cost = 0;
+    // "Seguro Descuento"/"Visa Descuento" (ver
+    // database.js#buildCourseDiscountEffect): Seguro/Visa son costos
+    // únicos por opción, no por curso — si varios cursos de la misma
+    // opción traen un porcentaje distinto para el MISMO concepto, se usa
+    // el MÁS ALTO de todos (decisión confirmada del cliente, 2026-10-14
+    // — mismo criterio que el viejo "Gratis", donde bastaba con que UN
+    // curso lo trajera). Los dos son independientes entre sí, nunca se
+    // combinan/suman.
+    const insuranceDiscountPercent = Math.min(100, courseLines.reduce((max, line) => Math.max(max, line.insuranceDiscountPercent || 0), 0));
 
-    if (courseLines.some(line => line.waiveVisa)) {
+    if (insuranceDiscountPercent > 0) insurance.cost = insurance.cost * (1 - insuranceDiscountPercent / 100);
 
-        visa.cost = 0;
+    const visaDiscountPercent = Math.min(100, courseLines.reduce((max, line) => Math.max(max, line.visaDiscountPercent || 0), 0));
 
-        visa.singleAmount = 0;
+    if (visaDiscountPercent > 0) {
 
-        visa.coupleAmount = 0;
+        const visaFactor = 1 - visaDiscountPercent / 100;
 
-        visa.minorAmount = 0;
+        visa.cost = visa.cost * visaFactor;
+
+        visa.singleAmount = visa.singleAmount * visaFactor;
+
+        visa.coupleAmount = visa.coupleAmount * visaFactor;
+
+        visa.minorAmount = visa.minorAmount * visaFactor;
 
     }
 
@@ -485,14 +495,14 @@ async function calculateCourseLine(course, country, applicationType) {
         // pdf.js#collectNotes agrega a las Notas del PDF cuando aplica.
         firstPaymentDepositNote: "",
 
-        // Indicadores "Seguro Gratis"/"Visa Gratis" (ver
+        // Indicadores "Seguro Descuento"/"Visa Descuento" (ver
         // database.js#buildCourseDiscountEffect) — Seguro/Visa se calculan
         // UNA vez por opción, no por curso, así que esto solo viaja hasta
-        // calculateOptionQuote, que pone el costo en $0 si CUALQUIER curso
-        // de la opción trae la bandera en true.
-        waiveInsurance: !!details.waiveInsurance,
+        // calculateOptionQuote, que usa el MÁS ALTO entre todos los
+        // cursos de la opción.
+        insuranceDiscountPercent: details.insuranceDiscountPercent || 0,
 
-        waiveVisa: !!details.waiveVisa,
+        visaDiscountPercent: details.visaDiscountPercent || 0,
 
         // "¿Es estudiante de la institución?" (solo se pregunta/usa en
         // Onshore) — ver pricing.js#applyInstitutionEnrollmentFeeRule.

@@ -447,13 +447,14 @@ function amountRow(label, amount, moneyCtx, options = {}) {
  ----------------------------------------------------------
  Uno por curso con descuento > 0 y/o bonusNotes (ver
  database.js#fetchCourseDetails / buildCourseDiscountEffect). Dónde se
- ubica (ver buildCostTableSection): el de Seguro Gratis/Visa Gratis
- (course.waiveInsurance/waiveVisa) va DESPUÉS de la tabla "OTROS
- CARGOS" — ahí es donde se ve el beneficio real (Seguro médico/Visa
- en $0) — mientras que cualquier otro indicador se queda junto al
- curso, antes de "OTROS CARGOS" (pedido explícito del cliente,
- 2026-10-05). El contenido de este bloque en sí no cambia según
- dónde se inserte. Dos partes independientes:
+ ubica (ver buildCostTableSection): el de Seguro Descuento/Visa
+ Descuento (course.insuranceDiscountPercent/visaDiscountPercent > 0)
+ va DESPUÉS de la tabla "OTROS CARGOS" — ahí es donde se ve el
+ beneficio real (Seguro médico/Visa ya con el % aplicado) — mientras
+ que cualquier otro indicador se queda junto al curso, antes de
+ "OTROS CARGOS" (pedido explícito del cliente, 2026-10-05). El
+ contenido de este bloque en sí no cambia según dónde se inserte. Dos
+ partes independientes:
 
    - Descuento real (course.discount > 0): descripción de la
      promoción + Beneficio + Precio final (course.subtotal, única
@@ -1135,7 +1136,7 @@ function buildCostTableSection(quote, moneyCtx) {
 
             const block = buildPromotionBlock(course, moneyCtx);
 
-            if (course.waiveInsurance || course.waiveVisa) {
+            if (course.insuranceDiscountPercent > 0 || course.visaDiscountPercent > 0) {
 
                 otrosCargosPromotionBlocks.push(block);
 

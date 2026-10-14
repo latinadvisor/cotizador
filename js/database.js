@@ -636,15 +636,14 @@ async function fetchElicosDurationsByCourseSelection({ college, city, program })
  ----------------------------------------------------------
  Reemplaza por completo el Motor de Promociones y la hoja
  "Promociones" (decisión confirmada del cliente — ya no coexisten).
- Ahora el descuento vive directo en la hoja "Cursos", 3 columnas
- nuevas por fila: "Indicador de descuento" (qué tipo de beneficio),
- "valor descuento" (cuánto — el encabezado real de la hoja NO
- lleva "de" ni mayúscula inicial; verificado vía gviz, columna U) y
- "Horarios de descuento" (opcional, agregada 2026-10-14 — a qué
- Horario restringe el indicador, ver buildCourseDiscountEffect).
- Como cada curso trae UN solo
- indicador (no una lista de reglas), ya no hace falta resolver
- prioridad/combinabilidad entre varias — ver
+ Ahora el descuento vive directo en la hoja "Cursos", con estas
+ columnas por fila: "Indicador de descuento" (qué tipo de
+ beneficio), "valor descuento" (cuánto — el encabezado real de la
+ hoja NO lleva "de" ni mayúscula inicial; verificado vía gviz,
+ columna U), "Horarios de descuento" (opcional, agregada
+ 2026-10-14) y "Aplicación" (opcional, agregada 2026-10-14). Como
+ cada curso trae UN solo indicador (no una lista de reglas), ya no
+ hace falta resolver prioridad/combinabilidad entre varias — ver
  buildCourseDiscountEffect más abajo.
 ==========================================================*/
 
@@ -678,25 +677,46 @@ function criterionMatches(cellValue, candidate) {
     resolver conflictos entre varias reglas (a diferencia del viejo
     Motor de Promociones).
 
-    Los indicadores que mencionan Onshore/Offshore SOLO tienen efecto
-    si la cotización es exactamente de ese tipo — en cualquier otro
-    caso (incluida una aplicación que no calce) se comportan igual
-    que "No aplica" (effect "vacío", sin modificar nada). "Suma
-    Semana"/"Resta Semana" SIN ese sufijo (decisión confirmada del
-    cliente, 2026-10-14) hacen lo mismo que sus versiones Onshore/
-    Offshore, pero aplican a los dos tipos de aplicación a la vez.
+    "Suma Semana"/"Resta Semana"/"Valor Semana" aplican a los dos
+    tipos de aplicación a la vez — para restringir alguna a Onshore
+    u Offshore se usa la columna "Aplicación" (ver abajo), NUNCA un
+    sufijo en el nombre del indicador (decisión confirmada del
+    cliente, 2026-10-14: "Suma/Resta/Valor Semana Onshore/Offshore"
+    ya NO se reconocen — si alguna fila real todavía los tiene, hay
+    que actualizarla a mano al nombre genérico + "Aplicación").
 
-    "Horarios de descuento" (columna nueva, 2026-10-14): si la fila
-    trae un Horario ahí (ej. "Mañana"), el indicador de esa fila SOLO
-    aplica cuando el curso se cotiza con ese Horario exacto — vacío
-    significa que el Horario no restringe nada, aplica siempre. Es
-    una restricción sobre CUALQUIER indicador, no solo Suma/Resta
-    Semana.
+    "Horarios de descuento" y "Aplicación" (columnas nuevas,
+    2026-10-14) restringen CUALQUIER indicador, evaluadas ANTES del
+    switch:
+      - "Horarios de descuento": el indicador SOLO aplica si el curso
+        se cotiza con ese Horario exacto (ej. "Mañana"). Vacío = no
+        restringe, aplica a cualquier Horario.
+      - "Aplicación": el indicador SOLO aplica si la cotización es
+        de ese Tipo de Aplicación exacto ("Onshore"/"Offshore").
+        Vacío = no restringe, aplica a los dos.
+    Ambas admiten varios valores separados por coma, igual criterio
+    que criterionMatches().
+
+    "Matrícula Descuento"/"Materiales Descuento"/"Seguro
+    Descuento"/"Visa Descuento" (decisión confirmada del cliente,
+    2026-10-14 — reemplazan a "Matrícula/Materiales/Seguro/Visa
+    Gratis", que ya NO se reconocen: cualquier fila real que todavía
+    diga "... Gratis" hay que actualizarla a mano en el Sheet, o
+    queda sin efecto como "No aplica"): "valor descuento" ahora es
+    un PORCENTAJE (0-100), nunca un monto fijo ni un todo-o-nada —
+    100% equivale al viejo "Gratis", vacío/0 significa que no se usa
+    este indicador. Seguro/Visa son costos de TODA la opción, no por
+    curso (ver pricing.js#calculateOptionQuote): si varios cursos de
+    la misma opción traen un porcentaje distinto para el MISMO
+    concepto (ej. dos cursos con "Seguro Descuento" distinto), se usa
+    el MÁS ALTO de todos — igual criterio que el viejo "Gratis"
+    (bastaba con que UN curso lo trajera). Seguro Descuento y Visa
+    Descuento son independientes entre sí, nunca se combinan/suman.
 
     "Nota fija" (decisión confirmada del cliente, 2026-10-05): para
     colegios donde la tarifa semanal YA viene rebajada directo en las
     columnas de catálogo "Valor semana ..." (ver resolveWeeklyRate) —
-    sin pasar por "Valor Semana Onshore/Offshore" ni ningún otro
+    sin pasar por "Valor Semana" ni ningún otro
     indicador de precio — este indicador sirve solo para AVISAR al
     estudiante que esa tarifa tiene un precio regular más alto. "valor
     descuento" en esta fila deja de ser el monto del beneficio y pasa a
@@ -707,9 +727,15 @@ function criterionMatches(cellValue, candidate) {
     número que ve el estudiante sea siempre el real de la base de
     datos y nunca quede desincronizado si el precio cambia después.
     Sin efecto en precio/semanas/seguro/visa — es 100% informativo
-    (bonusDescription), igual que Seguro/Visa Gratis. Si el precio
-    regular ingresado es igual o menor al de catálogo (o viene vacío),
-    no se genera nota — no hay nada que avisar.
+    (bonusDescription). Si el precio regular ingresado es igual o
+    menor al de catálogo (o viene vacío), no se genera nota — no hay
+    nada que avisar.
+
+    "Nota descriptiva" (nueva, 2026-10-14): a diferencia de TODOS los
+    demás indicadores, "valor descuento" acá NO es un número — es
+    texto libre que admisiones escribe tal cual, y aparece como nota
+    informativa en el PDF (igual mecanismo que Seguro/Visa Descuento,
+    sin tocar precio/semanas/seguro/visa). Vacío = no se genera nota.
 
     No hay fecha de vigencia ni prioridad/combinabilidad como en el
     viejo motor (decisión confirmada del cliente: el indicador se
@@ -730,13 +756,17 @@ function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate, sche
 
         percentOff: 0,
 
-        waiveEnrollment: false,
+        // Porcentajes (0-100) — reemplazan los viejos waiveEnrollment/
+        // waiveMaterials/waiveInsurance/waiveVisa (todo-o-nada); 0 = sin
+        // efecto. Ver "Matrícula/Materiales/Seguro/Visa Descuento" más
+        // arriba.
+        enrollmentDiscountPercent: 0,
 
-        waiveMaterials: false,
+        materialsDiscountPercent: 0,
 
-        waiveInsurance: false,
+        insuranceDiscountPercent: 0,
 
-        waiveVisa: false,
+        visaDiscountPercent: 0,
 
         // Descuento real con cifra (Beneficio/Precio final en el PDF,
         // ver pdf.js#buildPromotionBlock) — null = no se muestra nada.
@@ -745,9 +775,9 @@ function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate, sche
         // true = "description" reemplaza el texto fijo "Beneficio" de la
         // fila de la cifra en rojo (sin línea italic aparte duplicada) —
         // decisión confirmada del cliente para Matrícula/Materiales
-        // Gratis y Descuento%, 2026-10-05. false (default) = layout
-        // viejo, con la descripción en una línea aparte arriba de
-        // "Beneficio" (Resta Semana/Valor Semana, sin cambios).
+        // Descuento y Descuento%, 2026-10-05/2026-10-14. false (default)
+        // = layout viejo, con la descripción en una línea aparte arriba
+        // de "Beneficio" (Resta Semana/Valor Semana, sin cambios).
         mergeBenefitLabel: false,
 
         // Bono informativo sin cifra (fila "+ nota" en el PDF) — null =
@@ -756,33 +786,18 @@ function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate, sche
 
     };
 
-    // "Horarios de descuento" (columna nueva, decisión confirmada del
-    // cliente, 2026-10-14): restringe CUALQUIER indicador a un horario
-    // puntual (ej. promociones que solo aplican en Mañana) — vacío =
-    // aplica a todos los horarios, igual criterio que criterionMatches()
-    // (admite varios separados por coma, ej. "Mañana,Tarde"). Se evalúa
-    // ANTES del switch, así que corta el efecto completo sin importar
-    // qué indicador traiga la fila.
+    // "Horarios de descuento" y "Aplicación" (columnas nuevas, decisión
+    // confirmada del cliente, 2026-10-14): restringen CUALQUIER
+    // indicador — vacío en cualquiera de las dos = no restringe nada
+    // por ese lado. Se evalúan ANTES del switch, así que cortan el
+    // efecto completo sin importar qué indicador traiga la fila.
     if (!criterionMatches(row["Horarios de descuento"], schedule)) return effect;
 
-    const onshoreOnly = ["suma semana onshore", "resta semana onshore", "valor semana onshore"];
-
-    const offshoreOnly = ["suma semana offshore", "resta semana offshore", "valor semana offshore"];
-
-    if (onshoreOnly.includes(indicator) && applicationType !== "Onshore") return effect;
-
-    if (offshoreOnly.includes(indicator) && applicationType !== "Offshore") return effect;
+    if (!criterionMatches(row["Aplicación"], applicationType)) return effect;
 
     switch (indicator) {
 
-        // "Suma Semana"/"Resta Semana" SIN sufijo (decisión confirmada
-        // del cliente, 2026-10-14): mismo efecto que las versiones
-        // Onshore/Offshore, pero aplican a los DOS tipos de aplicación a
-        // la vez — por eso NO están en onshoreOnly/offshoreOnly arriba,
-        // nunca se filtran por applicationType.
         case "suma semana":
-        case "suma semana onshore":
-        case "suma semana offshore":
             // Informativo: el estudiante estudia más semanas de las que
             // paga, pero NUNCA afecta precio/semanas pagadas/seguro/visa
             // (decisión confirmada del cliente, 2026-10-05 — mismo
@@ -791,45 +806,50 @@ function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate, sche
             break;
 
         case "resta semana":
-        case "resta semana onshore":
-        case "resta semana offshore":
             effect.chargeableWeeksDelta = -value;
             effect.description = `${value} semana(s) de descuento`;
             break;
 
-        case "valor semana onshore":
-        case "valor semana offshore":
+        case "valor semana":
             effect.weeklyRateOverride = value;
             effect.description = `Precio especial por semana: $${value}`;
             break;
 
-        case "matricula gratis":
-            effect.waiveEnrollment = true;
-            effect.description = "Beneficio matrícula gratis";
-            effect.mergeBenefitLabel = true;
+        case "matricula descuento":
+            effect.enrollmentDiscountPercent = Math.min(value, 100);
+            if (effect.enrollmentDiscountPercent > 0) {
+                effect.description = `Beneficio ${effect.enrollmentDiscountPercent}% de descuento en matrícula`;
+                effect.mergeBenefitLabel = true;
+            }
             break;
 
-        case "materiales gratis":
-            effect.waiveMaterials = true;
-            effect.description = "Beneficio materiales gratis";
-            effect.mergeBenefitLabel = true;
+        case "materiales descuento":
+            effect.materialsDiscountPercent = Math.min(value, 100);
+            if (effect.materialsDiscountPercent > 0) {
+                effect.description = `Beneficio ${effect.materialsDiscountPercent}% de descuento en materiales`;
+                effect.mergeBenefitLabel = true;
+            }
             break;
 
-        case "seguro gratis":
+        case "seguro descuento":
             // No toca "discount" (el beneficio real se ve aparte, en
-            // Seguro médico = $0 — ver pricing.js#calculateOptionQuote),
-            // así que la nota viaja por bonusDescription (como "Suma
+            // Seguro médico — ver pricing.js#calculateOptionQuote), así
+            // que la nota viaja por bonusDescription (como "Suma
             // Semana") para que igual aparezca en el PDF.
-            effect.waiveInsurance = true;
-            effect.bonusDescription = "Beneficio seguro gratis";
+            effect.insuranceDiscountPercent = Math.min(value, 100);
+            if (effect.insuranceDiscountPercent > 0) {
+                effect.bonusDescription = `Beneficio ${effect.insuranceDiscountPercent}% de descuento en el seguro médico`;
+            }
             break;
 
-        case "visa gratis":
-            effect.waiveVisa = true;
-            effect.bonusDescription = "Beneficio visa gratis";
+        case "visa descuento":
+            effect.visaDiscountPercent = Math.min(value, 100);
+            if (effect.visaDiscountPercent > 0) {
+                effect.bonusDescription = `Beneficio ${effect.visaDiscountPercent}% de descuento en la visa`;
+            }
             break;
 
-        case "descuento":
+        case "curso descuento":
             effect.percentOff = value;
             effect.description = `Beneficio ${value}% de descuento en tu curso`;
             effect.mergeBenefitLabel = true;
@@ -843,8 +863,21 @@ function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate, sche
             break;
         }
 
+        case "nota descriptiva": {
+            // Único indicador donde "valor descuento" es TEXTO libre,
+            // no un número — se lee directo de la celda, sin pasar por
+            // "value" (Number(...) de arriba).
+            const noteText = String(row["valor descuento"] == null ? "" : row["valor descuento"]).trim();
+            if (noteText) effect.bonusDescription = noteText;
+            break;
+        }
+
         // "no aplica" y cualquier valor vacío o no reconocido: sin
-        // efecto, el "effect" vacío de arriba ya cubre ese caso.
+        // efecto, el "effect" vacío de arriba ya cubre ese caso. Esto
+        // incluye las filas viejas que todavía digan "Matrícula/
+        // Materiales/Seguro/Visa Gratis" — ya no se reconocen, hay que
+        // actualizarlas a mano a "... Descuento" + 100 en valor
+        // descuento.
 
     }
 
@@ -1050,9 +1083,9 @@ async function fetchCourseDetails({ college, city, type, program, weeks, schedul
 
             onshoreWeeklyRate: 0,
 
-            waiveInsurance: false,
+            insuranceDiscountPercent: 0,
 
-            waiveVisa: false
+            visaDiscountPercent: 0
 
         };
 
@@ -1115,9 +1148,16 @@ async function fetchCourseDetails({ college, city, type, program, weeks, schedul
 
     programPrice = programPrice * (1 - Math.min(discountEffect.percentOff, 100) / 100);
 
-    const finalEnrollmentFee = discountEffect.waiveEnrollment ? 0 : catalogEnrollmentFee;
+    // "Matrícula/Materiales Descuento" (ver buildCourseDiscountEffect) —
+    // porcentaje (0-100), 100% equivale al viejo "Gratis" (waiveEnrollment/
+    // waiveMaterials ya no existen).
+    const enrollmentFeeWaivedAmount = catalogEnrollmentFee * (discountEffect.enrollmentDiscountPercent / 100);
 
-    const finalMaterialsFee = discountEffect.waiveMaterials ? 0 : catalogMaterialsFee;
+    const materialsFeeWaivedAmount = catalogMaterialsFee * (discountEffect.materialsDiscountPercent / 100);
+
+    const finalEnrollmentFee = catalogEnrollmentFee - enrollmentFeeWaivedAmount;
+
+    const finalMaterialsFee = catalogMaterialsFee - materialsFeeWaivedAmount;
 
     const finalTotal = programPrice + finalEnrollmentFee + finalMaterialsFee;
 
@@ -1145,10 +1185,6 @@ async function fetchCourseDetails({ college, city, type, program, weeks, schedul
     */
     const priceDiscount = Math.max(0, catalogPrice - programPrice);
 
-    const enrollmentFeeWaivedAmount = discountEffect.waiveEnrollment ? catalogEnrollmentFee : 0;
-
-    const materialsFeeWaivedAmount = discountEffect.waiveMaterials ? catalogMaterialsFee : 0;
-
     return {
 
         found: true,
@@ -1156,8 +1192,8 @@ async function fetchCourseDetails({ college, city, type, program, weeks, schedul
         // Fila encontrada (Colegio+Ciudad+Programa+Nacionalidad+Duración
         // calzan), pero sin ninguna tarifa semanal utilizable: ni la del
         // Horario elegido, ni el respaldo general del bloque Onshore/
-        // Offshore (resolveWeeklyRate), ni un "Valor Semana Onshore/
-        // Offshore" que la reemplace. Antes esto producía una cotización
+        // Offshore (resolveWeeklyRate), ni un "Valor Semana" que la
+        // reemplace. Antes esto producía una cotización
         // silenciosa en $0 — ahora pricing.js#collectWarnings avisa ANTES
         // de generar, en vez de dejar pasar un curso sin precio (pedido
         // explícito del cliente, 2026-10-05).
@@ -1188,15 +1224,14 @@ async function fetchCourseDetails({ college, city, type, program, weeks, schedul
 
         materialsFeeWaivedAmount,
 
-        // "Seguro Gratis"/"Visa Gratis" (ver buildCourseDiscountEffect) —
-        // el Seguro médico y la Visa se calculan UNA vez por opción, no
+        // "Seguro Descuento"/"Visa Descuento" (ver buildCourseDiscountEffect)
+        // — el Seguro médico y la Visa se calculan UNA vez por opción, no
         // por curso (ver pricing.js#calculateInsurance/calculateVisa), así
-        // que esta bandera solo viaja hasta allá: si CUALQUIER curso de la
-        // opción la trae en true, pricing.js#calculateOptionQuote pone ese
-        // costo en $0 para toda la opción.
-        waiveInsurance: discountEffect.waiveInsurance,
+        // que este porcentaje solo viaja hasta allá: pricing.js#calculateOptionQuote
+        // usa el MÁS ALTO de todos los cursos de la opción para ese costo.
+        insuranceDiscountPercent: discountEffect.insuranceDiscountPercent,
 
-        waiveVisa: discountEffect.waiveVisa,
+        visaDiscountPercent: discountEffect.visaDiscountPercent,
 
         // Tarifa semanal Onshore de catálogo (sin promoción) — insumo de
         // la fórmula "semanas de estudio" del Primer Depósito Onshore
