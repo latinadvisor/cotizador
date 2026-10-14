@@ -640,7 +640,7 @@ async function fetchElicosDurationsByCourseSelection({ college, city, program })
  columnas por fila: "Indicador de descuento" (qué tipo de
  beneficio), "valor descuento" (cuánto — el encabezado real de la
  hoja NO lleva "de" ni mayúscula inicial; verificado vía gviz,
- columna U), "Horarios de descuento" (opcional, agregada
+ columna U), "Horarios Descuentos" (opcional, agregada
  2026-10-14) y "Aplicación" (opcional, agregada 2026-10-14). Como
  cada curso trae UN solo indicador (no una lista de reglas), ya no
  hace falta resolver prioridad/combinabilidad entre varias — ver
@@ -685,10 +685,10 @@ function criterionMatches(cellValue, candidate) {
     ya NO se reconocen — si alguna fila real todavía los tiene, hay
     que actualizarla a mano al nombre genérico + "Aplicación").
 
-    "Horarios de descuento" y "Aplicación" (columnas nuevas,
+    "Horarios Descuentos" y "Aplicación" (columnas nuevas,
     2026-10-14) restringen CUALQUIER indicador, evaluadas ANTES del
     switch:
-      - "Horarios de descuento": el indicador SOLO aplica si el curso
+      - "Horarios Descuentos": el indicador SOLO aplica si el curso
         se cotiza con ese Horario exacto (ej. "Mañana"). Vacío = no
         restringe, aplica a cualquier Horario.
       - "Aplicación": el indicador SOLO aplica si la cotización es
@@ -786,12 +786,12 @@ function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate, sche
 
     };
 
-    // "Horarios de descuento" y "Aplicación" (columnas nuevas, decisión
+    // "Horarios Descuentos" y "Aplicación" (columnas nuevas, decisión
     // confirmada del cliente, 2026-10-14): restringen CUALQUIER
     // indicador — vacío en cualquiera de las dos = no restringe nada
     // por ese lado. Se evalúan ANTES del switch, así que cortan el
     // efecto completo sin importar qué indicador traiga la fila.
-    if (!criterionMatches(row["Horarios de descuento"], schedule)) return effect;
+    if (!criterionMatches(row["Horarios Descuentos"], schedule)) return effect;
 
     if (!criterionMatches(row["Aplicación"], applicationType)) return effect;
 
