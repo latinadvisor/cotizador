@@ -636,10 +636,12 @@ async function fetchElicosDurationsByCourseSelection({ college, city, program })
  ----------------------------------------------------------
  Reemplaza por completo el Motor de Promociones y la hoja
  "Promociones" (decisión confirmada del cliente — ya no coexisten).
- Ahora el descuento vive directo en la hoja "Cursos", 2 columnas
- nuevas por fila: "Indicador de descuento" (qué tipo de beneficio)
- y "valor descuento" (cuánto — el encabezado real de la hoja NO
- lleva "de" ni mayúscula inicial; verificado vía gviz, columna U).
+ Ahora el descuento vive directo en la hoja "Cursos", 3 columnas
+ nuevas por fila: "Indicador de descuento" (qué tipo de beneficio),
+ "valor descuento" (cuánto — el encabezado real de la hoja NO
+ lleva "de" ni mayúscula inicial; verificado vía gviz, columna U) y
+ "Horarios de descuento" (opcional, agregada 2026-10-14 — a qué
+ Horario restringe el indicador, ver buildCourseDiscountEffect).
  Como cada curso trae UN solo
  indicador (no una lista de reglas), ya no hace falta resolver
  prioridad/combinabilidad entre varias — ver
@@ -679,7 +681,17 @@ function criterionMatches(cellValue, candidate) {
     Los indicadores que mencionan Onshore/Offshore SOLO tienen efecto
     si la cotización es exactamente de ese tipo — en cualquier otro
     caso (incluida una aplicación que no calce) se comportan igual
-    que "No aplica" (effect "vacío", sin modificar nada).
+    que "No aplica" (effect "vacío", sin modificar nada). "Suma
+    Semana"/"Resta Semana" SIN ese sufijo (decisión confirmada del
+    cliente, 2026-10-14) hacen lo mismo que sus versiones Onshore/
+    Offshore, pero aplican a los dos tipos de aplicación a la vez.
+
+    "Horarios de descuento" (columna nueva, 2026-10-14): si la fila
+    trae un Horario ahí (ej. "Mañana"), el indicador de esa fila SOLO
+    aplica cuando el curso se cotiza con ese Horario exacto — vacío
+    significa que el Horario no restringe nada, aplica siempre. Es
+    una restricción sobre CUALQUIER indicador, no solo Suma/Resta
+    Semana.
 
     "Nota fija" (decisión confirmada del cliente, 2026-10-05): para
     colegios donde la tarifa semanal YA viene rebajada directo en las
@@ -704,7 +716,7 @@ function criterionMatches(cellValue, candidate) {
     aplica siempre que esté puesto, hasta que alguien lo cambie a
     mano en la hoja — no hay apagado automático por fecha).
 */
-function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate) {
+function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate, schedule) {
 
     const indicator = stripAccents(normalize(row["Indicador de descuento"]));
 
@@ -744,6 +756,15 @@ function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate) {
 
     };
 
+    // "Horarios de descuento" (columna nueva, decisión confirmada del
+    // cliente, 2026-10-14): restringe CUALQUIER indicador a un horario
+    // puntual (ej. promociones que solo aplican en Mañana) — vacío =
+    // aplica a todos los horarios, igual criterio que criterionMatches()
+    // (admite varios separados por coma, ej. "Mañana,Tarde"). Se evalúa
+    // ANTES del switch, así que corta el efecto completo sin importar
+    // qué indicador traiga la fila.
+    if (!criterionMatches(row["Horarios de descuento"], schedule)) return effect;
+
     const onshoreOnly = ["suma semana onshore", "resta semana onshore", "valor semana onshore"];
 
     const offshoreOnly = ["suma semana offshore", "resta semana offshore", "valor semana offshore"];
@@ -754,6 +775,12 @@ function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate) {
 
     switch (indicator) {
 
+        // "Suma Semana"/"Resta Semana" SIN sufijo (decisión confirmada
+        // del cliente, 2026-10-14): mismo efecto que las versiones
+        // Onshore/Offshore, pero aplican a los DOS tipos de aplicación a
+        // la vez — por eso NO están en onshoreOnly/offshoreOnly arriba,
+        // nunca se filtran por applicationType.
+        case "suma semana":
         case "suma semana onshore":
         case "suma semana offshore":
             // Informativo: el estudiante estudia más semanas de las que
@@ -763,6 +790,7 @@ function buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate) {
             effect.bonusDescription = `Tienes ${value} semana(s) más de estudio`;
             break;
 
+        case "resta semana":
         case "resta semana onshore":
         case "resta semana offshore":
             effect.chargeableWeeksDelta = -value;
@@ -1071,7 +1099,7 @@ async function fetchCourseDetails({ college, city, type, program, weeks, schedul
 
     const catalogTotal = catalogPrice + catalogEnrollmentFee + catalogMaterialsFee;
 
-    const discountEffect = buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate);
+    const discountEffect = buildCourseDiscountEffect(row, applicationType, catalogWeeklyRate, schedule);
 
     const weeklyRate = discountEffect.weeklyRateOverride != null ? discountEffect.weeklyRateOverride : catalogWeeklyRate;
 
