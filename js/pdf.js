@@ -726,17 +726,24 @@ function weeksToClosedMonthsLabel(weeks) {
 }
 
 /*==========================================================
- "VISADO POR:" (decisión confirmada del cliente, 2026-10-13)
+ "VISADO POR:" (decisión confirmada del cliente, 2026-10-13/14)
  ----------------------------------------------------------
- Reglas de tiempo adicional de visado sobre la duración total de
- la opción (computeTotalWeeks — TODOS los cursos combinados, igual
- criterio que "Estudio por"/"Duración" del comparativo):
+ Reglas de tiempo adicional de visado, aplicadas sobre la duración
+ de estudio de la opción (computeTotalWeeks — TODOS los cursos
+ combinados, igual criterio que "Estudio por"/"Duración" del
+ comparativo) MÁS 4 semanas extra de vacaciones del curso (=1 mes,
+ 2026-10-14 — antes se probó con las 8 semanas que SÍ se usaban
+ para el Seguro médico, pero el cliente aclaró que acá son 4, no
+ 8). Esas 4 semanas entran ANTES de aplicar las reglas de abajo,
+ nunca se suman aparte:
 
-   - Duración < 10 meses cerrados (misma conversión semanas/4 que
-     weeksToClosedMonthsLabel) -> visado = esos meses + 1.
-   - Duración >= 10 meses -> visado = esos meses + 2, EXCEPTO si el
-     programa completo (fecha de inicio MÁS TEMPRANA entre los
-     cursos de la opción + duración total combinada) termina en
+   - Duración (+4 semanas) < 10 meses cerrados (misma conversión
+     semanas/4 que weeksToClosedMonthsLabel) -> visado = esos
+     meses + 1.
+   - Duración (+4 semanas) >= 10 meses -> visado = esos meses + 2,
+     EXCEPTO si el programa completo (fecha de inicio MÁS TEMPRANA
+     entre los cursos de la opción + duración total combinada, ya
+     con las 4 semanas de vacaciones incluidas) termina en
      diciembre: ahí Migración da la visa hasta el 15 de marzo del
      año SIGUIENTE, y el valor mostrado son los meses entre esa
      fecha de inicio y ese 15 de marzo (no el +2 plano).
@@ -747,8 +754,12 @@ function weeksToClosedMonthsLabel(weeks) {
  Puramente informativo para el PDF (campo "Visado por:") — NO
  toca el cálculo del Seguro médico, que sigue exactamente igual
  que hoy (esa extensión queda en pausa, pendiente completar la
- base de datos — ver historial de esta sesión).
+ base de datos — ver historial de esta sesión), y tampoco toca
+ computeTotalWeeks/officialWeeks en ningún otro lado (ESTUDIO POR,
+ Duración del comparativo, etc. siguen sin las 4 semanas extra).
 ==========================================================*/
+
+const VISADO_POR_VACATION_WEEKS = 4;
 
 /*
     Fecha de inicio MÁS TEMPRANA entre los cursos de la opción (ver
@@ -801,7 +812,11 @@ function resolveVisadoPorMonths(courses) {
 
     if (totalWeeks <= 0) return null;
 
-    const courseMonths = Math.max(1, Math.round(totalWeeks / 4));
+    // +4 semanas de vacaciones del curso ANTES de aplicar las reglas —
+    // ver comentario de la sección.
+    const effectiveWeeks = totalWeeks + VISADO_POR_VACATION_WEEKS;
+
+    const courseMonths = Math.max(1, Math.round(effectiveWeeks / 4));
 
     if (courseMonths < 10) return courseMonths + 1;
 
@@ -811,7 +826,7 @@ function resolveVisadoPorMonths(courses) {
 
         const combinedEnd = new Date(earliestStart.getTime());
 
-        combinedEnd.setDate(combinedEnd.getDate() + (totalWeeks * 7));
+        combinedEnd.setDate(combinedEnd.getDate() + (effectiveWeeks * 7));
 
         // getMonth() es 0-indexado -> 11 = diciembre.
         if (combinedEnd.getMonth() === 11) {
