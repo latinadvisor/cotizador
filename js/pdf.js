@@ -185,11 +185,11 @@ const TEMPLATE_LAYOUT = {
         cliente pidió volver a dejarlos pegados a la izquierda (mejor
         distribución del espacio):
 
-          "Visado por:" debajo de "Estudio por" — sin valor por ahora
-          (se completará más adelante con el tiempo estimado según
-          paquetes). Cabe en el espacio libre entre el borde inferior de
-          ese cuadro (179.00+21.75=200.75) y el borde superior de
-          "Asesora" (229.50).
+          "Visado por:" debajo de "Estudio por" — ver
+          buildVisadoPorValue para la regla del tiempo estimado
+          (confirmada 2026-10-13). Cabe en el espacio libre entre el
+          borde inferior de ese cuadro (179.00+21.75=200.75) y el
+          borde superior de "Asesora" (229.50).
 
           "Cotización: Onshore/Offshore" debajo de "Asesora", según
           quote.student.application_type — ver buildCotizacionTipoLine.
@@ -726,6 +726,119 @@ function weeksToClosedMonthsLabel(weeks) {
 }
 
 /*==========================================================
+ "VISADO POR:" (decisión confirmada del cliente, 2026-10-13)
+ ----------------------------------------------------------
+ Reglas de tiempo adicional de visado sobre la duración total de
+ la opción (computeTotalWeeks — TODOS los cursos combinados, igual
+ criterio que "Estudio por"/"Duración" del comparativo):
+
+   - Duración < 10 meses cerrados (misma conversión semanas/4 que
+     weeksToClosedMonthsLabel) -> visado = esos meses + 1.
+   - Duración >= 10 meses -> visado = esos meses + 2, EXCEPTO si el
+     programa completo (fecha de inicio MÁS TEMPRANA entre los
+     cursos de la opción + duración total combinada) termina en
+     diciembre: ahí Migración da la visa hasta el 15 de marzo del
+     año SIGUIENTE, y el valor mostrado son los meses entre esa
+     fecha de inicio y ese 15 de marzo (no el +2 plano).
+   - Sin "Fecha de inicio del curso" en NINGÚN curso de la opción
+     no hay forma de saber si termina en diciembre -> se aplica la
+     regla plana (+1 o +2) igual, sin el caso especial.
+
+ Puramente informativo para el PDF (campo "Visado por:") — NO
+ toca el cálculo del Seguro médico, que sigue exactamente igual
+ que hoy (esa extensión queda en pausa, pendiente completar la
+ base de datos — ver historial de esta sesión).
+==========================================================*/
+
+/*
+    Fecha de inicio MÁS TEMPRANA entre los cursos de la opción (ver
+    courses.js#createStartDateField) — null si ninguno la tiene
+    llena. Se parsea con hora fija "T00:00:00" para evitar que el
+    huso horario local corra el día al convertir el string
+    "AAAA-MM-DD" del input[type=date] a Date.
+*/
+function resolveEarliestCourseStartDate(courses) {
+
+    const dates = (courses || [])
+
+        .map(course => course.startDate)
+
+        .filter(Boolean)
+
+        .map(value => new Date(`${value}T00:00:00`))
+
+        .filter(date => !Number.isNaN(date.getTime()));
+
+    if (dates.length === 0) return null;
+
+    return new Date(Math.min(...dates.map(date => date.getTime())));
+
+}
+
+/*
+    Meses entre dos fechas, redondeados al más cercano (mismo
+    criterio que weeksToClosedMonthsLabel: "al más cercano", nunca
+    "completos/truncados") — usado solo para el caso especial de
+    diciembre. Trabaja en días/30.44 (duración promedio de un mes)
+    en vez de restar año/mes de calendario: esa resta puede dar un
+    valor MENOR al de la regla plana (+2) cuando el día del 15 de
+    marzo cae antes que el día de inicio (ej. inicio el 20, destino
+    el 15), lo cual no tiene sentido acá — el 15 de marzo es una
+    EXTENSIÓN del visado, nunca puede mostrar menos meses que la
+    regla plana que reemplaza.
+*/
+function monthsBetweenDates(start, end) {
+
+    const totalDays = Math.round((end.getTime() - start.getTime()) / 86400000);
+
+    return Math.max(1, Math.round(totalDays / 30.44));
+
+}
+
+function resolveVisadoPorMonths(courses) {
+
+    const totalWeeks = computeTotalWeeks(courses || []);
+
+    if (totalWeeks <= 0) return null;
+
+    const courseMonths = Math.max(1, Math.round(totalWeeks / 4));
+
+    if (courseMonths < 10) return courseMonths + 1;
+
+    const earliestStart = resolveEarliestCourseStartDate(courses);
+
+    if (earliestStart) {
+
+        const combinedEnd = new Date(earliestStart.getTime());
+
+        combinedEnd.setDate(combinedEnd.getDate() + (totalWeeks * 7));
+
+        // getMonth() es 0-indexado -> 11 = diciembre.
+        if (combinedEnd.getMonth() === 11) {
+
+            const marchDeadline = new Date(combinedEnd.getFullYear() + 1, 2, 15);
+
+            return monthsBetweenDates(earliestStart, marchDeadline);
+
+        }
+
+    }
+
+    return courseMonths + 2;
+
+}
+
+function buildVisadoPorValue(courses) {
+
+    const months = resolveVisadoPorMonths(courses);
+
+    if (months === null) return null;
+
+    return `${months} ${months === 1 ? "mes" : "meses"}`;
+
+}
+
+/*==========================================================
  CONSTRUYE EL DOCUMENTO DE CONTENIDO (se estampa sobre la
  plantilla — nunca dibuja logo, título, acento ni los cuadros
  verdes: eso ya está en pagina-blanca-cotizacion.pdf).
@@ -767,10 +880,12 @@ function buildOverlayDocDefinition(quote, student, advisor, optionLabel, moneyCt
 
     const greenBoxContentWidth = TEMPLATE_LAYOUT.greenBoxRight - TEMPLATE_LAYOUT.greenBoxLeft - TEMPLATE_LAYOUT.greenBoxRightPadding;
 
-    // "Visado por:" sin valor por ahora (pedido explícito del cliente,
-    // 2026-10-12 — se completará más adelante según paquetes) y
-    // "Cotización: Onshore/Offshore" pueden ser null/omitidos sin
-    // romper el documento (pdfmake no acepta null en "content").
+    // "Visado por:" ahora sí trae valor (reglas confirmadas por el
+    // cliente, 2026-10-13 — ver buildVisadoPorValue) y "Cotización:
+    // Onshore/Offshore" pueden ser null/omitidos sin romper el
+    // documento (pdfmake no acepta null en "content").
+    const visadoPorValue = buildVisadoPorValue(quote.courses);
+
     const cotizacionTipoLine = buildCotizacionTipoLine(student);
 
     return {
@@ -785,7 +900,10 @@ function buildOverlayDocDefinition(quote, student, advisor, optionLabel, moneyCt
 
             buildGreenBoxValue(asesoraValue, TEMPLATE_LAYOUT.asesoraText, greenBoxContentWidth),
 
-            buildBelowGreenBoxText("Visado por:", TEMPLATE_LAYOUT.visadoPorText),
+            buildBelowGreenBoxText(
+                visadoPorValue ? `Visado por: ${visadoPorValue}` : "Visado por:",
+                TEMPLATE_LAYOUT.visadoPorText
+            ),
 
             ...(cotizacionTipoLine ? [cotizacionTipoLine] : []),
 
@@ -929,9 +1047,9 @@ function buildProgramInfoBlock(primaryCourse, student, quote, optionLabel) {
       servicios opcionales (SIM Card, Recogida, etc.).
 
  Costos Extras (exámenes médicos/biométricos) ya NO tiene tabla
- propia acá — ahora SIEMPRE aparece como una nota resaltada al
- final (ver buildExtraCostsNoteText/quote.extraCosts.applies más
- abajo, que ahora es siempre true).
+ propia acá — ahora SIEMPRE aparece como una nota resaltada en la
+ página de cada opción (ver buildExtraCostsDesgloseNoteText/
+ quote.extraCosts.applies más abajo, que ahora es siempre true).
 
  El descuento NUNCA aparece acá (por pedido explícito del
  cliente), solo en el Resumen Financiero, justo antes del total.
@@ -1342,35 +1460,15 @@ function offshoreHasTranslationsItem(quote) {
 
 /*
     Costos Extras ahora SIEMPRE aplica (ver pricing.js#calculateExtraCosts,
-    decisión confirmada del cliente). Tiene 2 textos DISTINTOS (pedido
-    explícito del cliente, no repetir el mismo en los 2 lugares):
-
-      - buildExtraCostsNoteText: nota del comparativo (ver collectNotes) —
-        siempre el mismo texto, siempre con el total combinado
-        (biométricos + médicos), sin importar Onshore/Offshore.
-      - buildExtraCostsDesgloseNoteText: nota del desglose de cada opción
-        (ver buildExtraCostsDesgloseSection) — reemplaza la vieja tabla
-        "COSTOS EXTRAS". Texto genérico (pedido explícito del cliente,
-        2026-10-12 — ya no distingue el texto por application_type,
-        solo el monto): "si aplica o no" cubre tanto el caso Offshore
-        (médicos Y biométricos) como el Onshore (normalmente solo
-        médicos). El monto SÍ sigue distinto por application_type:
-          - Offshore: "Valor aprox." = total combinado (médicos + biométricos).
-          - Onshore: "Valor aprox." = SOLO el ítem "examen-medico".
-
-    Ninguna de las dos tiene fila propia en ninguna tabla — son
-    ÚNICAMENTE texto resaltado (bold + color).
+    decisión confirmada del cliente). Antes tenía 2 textos distintos: uno
+    en la página comparativa (collectNotes) y otro en el desglose de cada
+    opción (buildExtraCostsDesgloseSection) — el del comparativo se quitó
+    (pedido explícito del cliente, 2026-10-13: esa información ya vive en
+    la nota de cada opción, no hace falta repetirla). Queda solo
+    buildExtraCostsDesgloseNoteText, que NO tiene fila propia en ninguna
+    tabla — es ÚNICAMENTE texto resaltado (bold + color) dentro de la
+    página de cada opción.
 */
-function buildExtraCostsNoteText(quote, moneyCtx) {
-
-    const extraCostsAmountText = moneyCtx.primaryRate == null
-        ? "—"
-        : formatCurrency(quote.extraCosts.total * moneyCtx.primaryRate, moneyCtx.primaryCurrency);
-
-    return `Costos extras: corresponden a exámenes médicos y biométricos. Deben ser pagados directamente a cada entidad proveedora del servicio. Estos valores a continuación son informativos y serán confirmados por el equipo de visa al momento de aplicar, ya que dependen de la nacionalidad y el historial migratorio de cada estudiante. No están incluidos en el total de la cotización. Valor aprox.: ${extraCostsAmountText}.`;
-
-}
-
 function buildExtraCostsDesgloseNoteText(quote, moneyCtx) {
 
     const isOnshore = !!(quote.student && quote.student.application_type === "Onshore");
@@ -1390,8 +1488,6 @@ function buildExtraCostsDesgloseNoteText(quote, moneyCtx) {
 }
 
 function collectNotes(quote, moneyCtx) {
-
-    const hasExtraCosts = !!(quote.extraCosts && quote.extraCosts.applies);
 
     const hasOffshoreTranslations = offshoreHasTranslationsItem(quote);
 
@@ -1496,24 +1592,12 @@ function collectNotes(quote, moneyCtx) {
 
     }
 
-    // La nota de Primer Depósito Onshore ("condición extra" = "Nota") NO
-    // vive aquí — es específica de cada opción/colegio, así que se
-    // muestra en la página de ESA opción (ver buildExtraCostsDesgloseSection
-    // más abajo), no en esta lista compartida por todas las opciones.
-
-    if (hasExtraCosts) {
-
-        notes.push({
-
-            text: buildExtraCostsNoteText(quote, moneyCtx),
-
-            bold: true,
-
-            color: PDF_COLORS.text
-
-        });
-
-    }
+    // La nota de Costos Extras (exámenes médicos/biométricos) ya NO vive
+    // aquí (pedido explícito del cliente, 2026-10-13: esa información ya
+    // se repite en la nota de cada opción, ver buildExtraCostsDesgloseNoteText/
+    // buildExtraCostsDesgloseSection) — igual que la de Primer Depósito
+    // Onshore ("condición extra" = "Nota"), que tampoco vive aquí por ser
+    // específica de cada opción/colegio.
 
     /*
         Nota de traducciones OFFSHORE automáticas — ver
