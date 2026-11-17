@@ -107,7 +107,7 @@ async function upsertContact(studentData) {
  COTIZACIÓN (Custom Object "Quotation" + "Course Line")
 ==========================================================*/
 
-async function upsertQuotationRecord(header, contactId, quotationRecordId) {
+async function upsertQuotationRecord(header, contactId, quotationRecordId, quotationSendRecordId) {
 
     if (!isGhlRelayConfigured()) {
 
@@ -115,7 +115,24 @@ async function upsertQuotationRecord(header, contactId, quotationRecordId) {
 
     }
 
-    return ghlRelayRequest("/quotations/upsert", "POST", { header, contactId, quotationRecordId });
+    return ghlRelayRequest("/quotations/upsert", "POST", { header, contactId, quotationRecordId, quotationSendRecordId });
+
+}
+
+/*
+    "Quotation Send" — el envío que agrupa las opciones A/B/C de una misma
+    cotización (ver worker/ghl-relay.js#handleQuotationSendUpsert). Se crea
+    una sola vez por envío, antes de guardar cada opción. Agregado 2026-10-21.
+*/
+async function upsertQuotationSendRecord(header, contactId) {
+
+    if (!isGhlRelayConfigured()) {
+
+        return { quotationSendRecordId: "mock-quotation-send-1" };
+
+    }
+
+    return ghlRelayRequest("/quotation-sends/upsert", "POST", { header, contactId });
 
 }
 

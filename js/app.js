@@ -328,6 +328,36 @@ async function saveEachOptionToGhl(quote, student, advisor, contactId, pdfUrl, f
 
     let savedCount = 0;
 
+    // Código base compartido por TODAS las opciones de este envío — antes
+    // cada opción llamaba a buildQuotationCode() por su cuenta dentro del
+    // loop, así que si una opción tardaba en guardarse y el reloj cruzaba
+    // de segundo, las opciones de un mismo envío podían terminar con bases
+    // distintas (ej. ...041-A y ...042-B). Se calcula una sola vez acá para
+    // que el prefijo sea siempre el mismo y además sirva de quotation_code
+    // del "Quotation Send" padre.
+    const baseQuotationCode = buildQuotationCode();
+
+    // El "Quotation Send" agrupa las opciones en 1 solo registro en GHL
+    // (ver worker/ghl-relay.js#handleQuotationSendUpsert) — para que contar
+    // "cotizaciones enviadas" sea contar esos registros, no líneas de curso.
+    // Si el objeto todavía no existe en GHL (ver comentario de env vars en
+    // el Worker) esta llamada falla y quotationSendRecordId queda null — las
+    // opciones se siguen guardando igual que antes, sin agrupador, el
+    // asesor nunca se queda sin nada.
+    let quotationSendRecordId = null;
+
+    try {
+
+        const sendHeader = buildQuotationSendHeader(quote, student, advisor, pdfUrl, baseQuotationCode);
+
+        ({ quotationSendRecordId } = await upsertQuotationSendRecord(sendHeader, contactId));
+
+    } catch (error) {
+
+        console.error("Error guardando el \"Quotation Send\" (envío) en GoHighLevel — se continúa sin agrupador:", error);
+
+    }
+
     for (let index = 0; index < quote.options.length; index++) {
 
         const option = quote.options[index];
@@ -336,11 +366,11 @@ async function saveEachOptionToGhl(quote, student, advisor, contactId, pdfUrl, f
 
         try {
 
-            const header = buildQuotationHeader(legacyQuote, student, advisor, pdfUrl);
+            const header = buildQuotationHeader(legacyQuote, student, advisor, pdfUrl, baseQuotationCode);
 
             header.quotation_code = `${header.quotation_code}-${OPTION_CODE_SUFFIXES[index] || (index + 1)}`;
 
-            const { quotationRecordId } = await upsertQuotationRecord(header, contactId);
+            const { quotationRecordId } = await upsertQuotationRecord(header, contactId, undefined, quotationSendRecordId);
 
             await upsertLineItems(quotationRecordId, buildQuotationLines(legacyQuote));
 
@@ -537,11 +567,11 @@ function buildQuotationCode() {
 
 }
 
-function buildQuotationHeader(quote, student, advisor, pdfUrl) {
+function buildQuotationHeader(quote, student, advisor, pdfUrl, quotationCode) {
 
     return {
 
-        quotation_code: buildQuotationCode(),
+        quotation_code: quotationCode || buildQuotationCode(),
 
         destination: student.destination,
 
@@ -578,6 +608,48 @@ function buildQuotationHeader(quote, student, advisor, pdfUrl) {
         // Misma prioridad que pdf.js#resolveAsesoraName: el Owner real del
         // contacto (ver student.js#applyContactOwnerToAdvisor) manda sobre
         // el parámetro de URL, que hoy casi siempre llega vacío.
+        advisor_name: advisor.opportunityOwner || advisor.name,
+
+        advisor_email: advisor.opportunityOwnerEmail || advisor.email
+
+    };
+
+}
+
+/*
+    Header del "Quotation Send" — el envío que agrupa las N opciones (A, B,
+    C...) de una misma cotización en 1 solo registro en GHL (ver
+    worker/ghl-relay.js#handleQuotationSendUpsert). Los campos son los que ya
+    viajaban idénticos en cada buildQuotationHeader() por opción (destino,
+    tipo de aplicación, moneda, etc.) — acá se guardan una sola vez a nivel
+    del envío en vez de repetidos N veces. Agregado 2026-10-21.
+*/
+function buildQuotationSendHeader(quote, student, advisor, pdfUrl, quotationCode) {
+
+    return {
+
+        quotation_code: quotationCode,
+
+        destination: student.destination,
+
+        country: student.country || "",
+
+        application_type: student.application_type,
+
+        application_number: student.application_number,
+
+        quotation_type: student.quotation_type,
+
+        number_applicants: student.number_applicants,
+
+        currency: quote.currency,
+
+        total_options: quote.options.length,
+
+        internal_status: "generada",
+
+        pdf_url: pdfUrl,
+
         advisor_name: advisor.opportunityOwner || advisor.name,
 
         advisor_email: advisor.opportunityOwnerEmail || advisor.email
